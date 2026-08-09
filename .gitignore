@@ -1,0 +1,17 @@
+# dependencies + build output
+node_modules/
+dist/
+
+# machine-specific config (copy config.example.json to config.json and edit)
+config.json
+
+# derived index and other regenerable caches - deleting these must lose nothing
+.cache/
+
+# test + tool output
+test-results/
+*.log
+.DS_Store
+
+.claude/
+docs/superpowers/

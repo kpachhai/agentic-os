@@ -1,0 +1,39 @@
+{
+  "port": 4317,
+
+  "transcriptsDir": "~/.claude/projects",
+  "liveSessionsDir": "~/.claude/sessions",
+  "tasksDir": "~/.claude/tasks",
+  "claudeConfigPath": "~/.claude.json",
+  "claudeSettingsPath": "~/.claude/settings.json",
+  "historyPath": "~/.claude/history.jsonl",
+  "fileHistoryDir": "~/.claude/file-history",
+  "claudeMdPath": "~/.claude/CLAUDE.md",
+  "agentsDir": "~/.claude/agents",
+  "workflowsDir": "~/.claude/workflows",
+  "pluginsDir": "~/.claude/plugins",
+  "skillRoots": ["~/.claude/skills", "~/.claude/plugins"],
+
+  "engramVaultPath": "~/repos/github.com/<your-username>/<your-vault-repo>/engram-vault",
+  "frictionLogPath": "~/.claude/friction-log.md",
+  "wrapsDir": "~/.claude/projects/<your-encoded-project-dir>/memory",
+  "ctaDbPath": "~/.claude/plugins/data/claude-token-analyzer-claude-token-analyzer/token-analyzer.db",
+  "frictionResolveWindowDays": 14,
+  "pacingLogPath": "~/.claude/rate-limit-log.jsonl",
+
+  "digest": {
+    "localModelUrl": "http://127.0.0.1:8080",
+    "model": null,
+    "maxGrade": 12
+  },
+
+  "claudeBinary": "claude",
+  "launchDefaults": {
+    "cwd": "~/repos/github.com/<your-username>/<your-project>",
+    "allowedTools": "Read,Grep,Glob,Edit,Write,Bash,WebFetch,WebSearch,TodoWrite,Task",
+    "permissionMode": "acceptEdits",
+    "maxBudgetUsd": null,
+    "timeoutSeconds": 600
+  },
+  "smokeCommand": "claude --version"
+}

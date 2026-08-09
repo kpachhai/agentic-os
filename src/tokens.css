@@ -1,0 +1,1397 @@
+/* Instrument face.
+   --------------------------------------------------------------------------
+   The palette comes from measuring equipment rather than from dashboards. The
+   ground is cool graphite, not near-black: a slight blue cast reads as a machined
+   surface and keeps the panel from looking like a terminal. Figures are set in
+   paper-white ink so a number is always the brightest thing near it.
+
+   Four hues carry the one idea this tool is built on, which is that a figure must
+   never look more certain than its evidence. Each names an epistemic status and is
+   used for nothing else:
+
+     steel  measured  read straight off disk
+     sage   derived   computed from what was read
+     amber  bounded   a floor or an upper bound, not a count
+     violet unknown   could not be established
+
+   They are deliberately desaturated and appear only on a 3px rail, a small label,
+   and a scale tick. The rest of the interface stays graphite and ink, so the four
+   marks read as instrumentation rather than as decoration.
+
+   Every hex here is the contract; the rest of the UI reads these names and never
+   inlines a colour. Sharp edges only: border-radius 0 everywhere. */
+
+:root {
+  /* Machined surfaces, lightest to deepest. */
+  --ground: #171a1f;
+  --surface-dark: #171a1f;
+  --surface-mid: #1e222a;
+  --surface-card: #232830;
+  --surface-raised: #2a303a;
+  --steel-border: #333a45;
+  --rule-etched: #454e5c;
+
+  /* Ink. A figure is paper-white; its label is never as bright as it is. */
+  --text: #eef1f5;
+  --text-body: #c3c9d2;
+  --text-sub: #8b939f;
+
+  /* The four epistemic marks. Nothing else may use these. */
+  --measured: #6fa8cc;
+  --derived: #9db58c;
+  --bounded: #d9a05b;
+  --unknown: #8e82a6;
+
+  /* Compatibility aliases, so the views keep reading familiar names while the
+     values move onto the instrument palette. Structure is steel; emphasis is the
+     bounded amber, because on this panel the thing worth emphasising is nearly
+     always a figure that needs a caveat. */
+  --primary: #6fa8cc;
+  --ember: #d9a05b;
+  --spark: #d9a05b;
+  --success: #9db58c;
+  --warn: #c98282;
+  --info: #6fa8cc;
+
+  --font-ui: ui-sans-serif, system-ui, -apple-system, "Helvetica Neue", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+
+  /* One rhythm for the whole panel, so etched rules line up across cards. */
+  --gutter: 18px;
+  --rail: 3px;
+}
+
+/* Figures are instrument readouts: same width per digit so a column of numbers
+   aligns digit-for-digit and a changing value does not shift its neighbours. */
+.stat-tile .num,
+.num-cell,
+.data-table td,
+.row-meta,
+code,
+pre {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+* {
+  box-sizing: border-box;
+  border-radius: 0 !important;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--surface-dark);
+  color: var(--text-body);
+  font-family: var(--font-ui);
+  font-size: 14px;
+}
+
+a {
+  color: var(--info);
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+
+code,
+pre {
+  font-family: var(--font-mono);
+  background: var(--surface-mid);
+}
+
+pre {
+  padding: 10px;
+  overflow-x: auto;
+  border: 1px solid var(--steel-border);
+}
+
+h1,
+h2,
+h3 {
+  color: var(--text);
+  font-weight: 700;
+}
+
+/* ---- layout shell ---- */
+
+.shell {
+  display: flex;
+  height: 100%;
+}
+
+.nav {
+  width: 210px;
+  flex-shrink: 0;
+  background: var(--surface-mid);
+  border-right: 1px solid var(--steel-border);
+  display: flex;
+  flex-direction: column;
+}
+
+.nav-brand {
+  padding: 18px 16px 14px;
+  border-bottom: 1px solid var(--steel-border);
+}
+
+.nav-brand .title {
+  color: var(--text);
+  font-weight: 800;
+  font-size: 15px;
+  letter-spacing: 0.04em;
+}
+
+.nav-brand .sub {
+  color: var(--text-sub);
+  font-size: 11px;
+  margin-top: 2px;
+}
+
+.nav a.nav-item {
+  display: block;
+  padding: 10px 16px;
+  color: var(--text-sub);
+  border-left: 3px solid transparent;
+  font-weight: 600;
+}
+
+.nav a.nav-item:hover {
+  color: var(--text);
+  text-decoration: none;
+  background: var(--surface-card);
+}
+
+.nav a.nav-item.active {
+  color: var(--text);
+  border-left-color: var(--primary);
+  background: var(--surface-card);
+}
+
+.nav-foot {
+  margin-top: auto;
+  padding: 12px 16px;
+  color: var(--text-sub);
+  font-size: 11px;
+  border-top: 1px solid var(--steel-border);
+  font-family: var(--font-mono);
+}
+
+.main {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px 28px;
+}
+
+.view-title {
+  font-size: 20px;
+  margin: 0 0 4px;
+}
+
+.view-title .accent {
+  color: var(--ember);
+}
+
+.view-sub {
+  color: var(--text-sub);
+  margin: 0 0 20px;
+  font-size: 12.5px;
+}
+
+/* ---- shared components ---- */
+
+.card {
+  background: var(--surface-card);
+  border: 1px solid var(--steel-border);
+  padding: 14px 16px;
+  margin-bottom: 10px;
+}
+
+.badge {
+  display: inline-block;
+  font-size: 10.5px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  padding: 2px 7px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  border: 1px solid var(--steel-border);
+  color: var(--text-sub);
+}
+
+/* Badges are structural labels, not figures, so they must not compete with the four
+   provenance marks for hue - a fifth and sixth colour would dilute the one system
+   the palette exists to carry. They separate by treatment instead: outline for a
+   category, filled for its emphasised counterpart. Two treatments over four hues
+   gives every variant a distinct reading without borrowing a mark's meaning.
+
+   Filled variants get a dark ink colour so text stays legible on the fill. */
+.badge.purple {
+  color: var(--measured);
+  border-color: var(--measured);
+}
+
+.badge.info {
+  color: var(--ground);
+  background: var(--measured);
+  border-color: var(--measured);
+}
+
+.badge.spark {
+  color: var(--bounded);
+  border-color: var(--bounded);
+}
+
+.badge.ember {
+  color: var(--ground);
+  background: var(--bounded);
+  border-color: var(--bounded);
+}
+
+.badge.success {
+  color: var(--derived);
+  border-color: var(--derived);
+}
+
+.badge.warn {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+
+.row-meta {
+  color: var(--text-sub);
+  font-size: 11.5px;
+  font-family: var(--font-mono);
+}
+
+.empty-state {
+  border: 1px dashed var(--steel-border);
+  padding: 28px;
+  text-align: center;
+  color: var(--text-sub);
+}
+
+.error-state {
+  border: 1px solid var(--warn);
+  padding: 16px;
+  color: var(--warn);
+}
+
+input[type="text"],
+input[type="search"],
+select {
+  background: var(--surface-mid);
+  border: 1px solid var(--steel-border);
+  color: var(--text);
+  padding: 7px 10px;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  outline: none;
+}
+
+input[type="text"]:focus,
+input[type="search"]:focus,
+select:focus {
+  border-color: var(--primary);
+}
+
+button {
+  background: var(--surface-mid);
+  border: 1px solid var(--steel-border);
+  color: var(--text);
+  padding: 7px 14px;
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+  font-family: var(--font-ui);
+}
+
+button:hover {
+  border-color: var(--primary);
+}
+
+button.primary {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+button.ember {
+  border-color: var(--ember);
+  color: var(--ember);
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.toolbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.chip {
+  border: 1px solid var(--steel-border);
+  background: transparent;
+  color: var(--text-sub);
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+.chip.active {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+/* stat tiles (CTA headline stats) */
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.stat-tile {
+  background: var(--surface-card);
+  border: 1px solid var(--steel-border);
+  padding: 14px 16px;
+}
+
+.stat-tile .num {
+  font-size: 26px;
+  font-weight: 800;
+  color: var(--spark);
+  font-family: var(--font-mono);
+}
+
+/* A figure that has crossed a threshold worth noticing, rather than one that is
+   merely large. Only the reading changes colour; the tile stays quiet. */
+.stat-tile .num.accent {
+  color: var(--ember);
+}
+
+.stat-tile .label {
+  color: var(--text-sub);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-top: 4px;
+}
+
+/* markdown body rendering */
+.md-body {
+  line-height: 1.55;
+}
+
+.md-body h1,
+.md-body h2,
+.md-body h3 {
+  border-bottom: 1px solid var(--steel-border);
+  padding-bottom: 4px;
+}
+
+.md-body code {
+  padding: 1px 4px;
+}
+
+.md-body blockquote {
+  border-left: 3px solid var(--primary);
+  margin-left: 0;
+  padding-left: 12px;
+  color: var(--text-sub);
+}
+
+.md-body table {
+  border-collapse: collapse;
+}
+
+.md-body th,
+.md-body td {
+  border: 1px solid var(--steel-border);
+  padding: 5px 9px;
+  text-align: left;
+}
+
+/* two-pane master/detail */
+.split {
+  display: grid;
+  grid-template-columns: minmax(300px, 5fr) 7fr;
+  gap: 16px;
+  align-items: start;
+}
+
+/* A pane holding nothing must not reserve a column: an empty sliver beside a full
+   list reads as a rendering fault rather than as an invitation to select something. */
+.split:has(> :last-child:nth-child(1)) {
+  grid-template-columns: 1fr;
+}
+
+.detail-pane {
+  position: sticky;
+  top: 0;
+  max-height: calc(100vh - 120px);
+  overflow-y: auto;
+}
+
+.list-row {
+  cursor: pointer;
+}
+
+.list-row:hover {
+  border-color: var(--primary);
+}
+
+.list-row.selected {
+  border-left: 3px solid var(--ember);
+}
+
+/* A wait that looks like the thing being waited for.
+   ---------------------------------------------------------------------------
+   What this replaced was one centred line of grey text with no animation, so the
+   pillar that takes a second and a half to read every transcript on the machine
+   looked identical to one that had hung. These shapes mirror the layout about to
+   appear and move while they do it, so the wait reads as work.
+
+   The shimmer is layered on top of a background the shape already has, rather
+   than being the only thing that makes it visible. The reduced-motion rule
+   further down freezes every animation on the page, and a placeholder that was
+   only visible mid-animation would vanish for exactly the readers who asked for
+   less movement. */
+.skeleton {
+  padding: 24px 0;
+}
+
+.skeleton-label {
+  color: var(--text-sub);
+  display: block;
+  margin-bottom: 12px;
+  text-align: center;
+}
+
+.skeleton-shapes {
+  display: grid;
+  gap: 12px;
+}
+
+.skeleton-shapes.is-tiles {
+  /* Same auto-fit floor the real stat-tile rows use, so the placeholder reflows
+     at the same widths as the content and the page does not jump on arrival. */
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+
+.skeleton-shapes.is-tiles .skeleton-shape {
+  height: 76px;
+}
+
+.skeleton-shapes.is-rows .skeleton-shape {
+  height: 44px;
+}
+
+.skeleton-shapes.is-table {
+  gap: 1px;
+}
+
+.skeleton-shapes.is-table .skeleton-shape {
+  border-radius: 0;
+  height: 32px;
+}
+
+.skeleton-shape {
+  background-color: var(--surface-card);
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--surface-raised) 50%,
+    transparent 100%
+  );
+  background-repeat: no-repeat;
+  background-size: 40% 100%;
+  border: 1px solid var(--steel-border);
+  border-radius: 2px;
+  animation: skeleton-sweep 1.4s ease-in-out infinite;
+}
+
+@keyframes skeleton-sweep {
+  from {
+    background-position: -60% 0;
+  }
+  to {
+    background-position: 160% 0;
+  }
+}
+
+/* A source that is not on disk yet. Visually distinct from .error-state on
+   purpose: dashed and calm rather than bordered in warn red, because "you have
+   not set this up" is a first-run state and not a fault. Rendering the two the
+   same way made a fresh clone look like a broken install. */
+.not-configured {
+  border: 1px dashed var(--steel-border);
+  background: var(--surface-mid);
+  padding: 20px 22px;
+  max-width: 720px;
+}
+
+.not-configured-head {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  margin-bottom: 12px;
+}
+
+.not-configured-lead {
+  color: var(--text-body);
+  line-height: 1.55;
+  margin: 0 0 14px;
+}
+
+.not-configured-path {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  border-left: 2px solid var(--primary);
+  padding-left: 10px;
+  margin-bottom: 14px;
+}
+
+/* Without the max-width the code element stretches to the column's full width and
+   the value reads as a bar. The rest overrides the break-all below: these blocks
+   hold paths and shell commands, and breaking one mid-token puts a line break
+   inside something the reader is meant to copy. Scrolling keeps it intact and
+   keeps the panel from widening the page. */
+.not-configured-path code {
+  display: block;
+  max-width: 100%;
+  white-space: pre;
+  overflow-x: auto;
+  word-break: normal;
+  padding: 4px 6px;
+}
+
+.not-configured-how {
+  color: var(--text-sub);
+  line-height: 1.55;
+  margin: 0 0 10px;
+}
+
+.not-configured code,
+.row-meta code {
+  font-family: var(--font-mono);
+  color: var(--spark);
+  background: var(--surface-dark);
+  padding: 1px 5px;
+  font-size: 0.85em;
+  word-break: break-all;
+}
+
+/* A nav entry whose source is absent. Dimmed so the reader learns which pillars
+   have nothing to show before clicking, rather than after. */
+.nav-item.unavailable {
+  opacity: 0.45;
+}
+
+.nav-item .nav-dot {
+  color: var(--text-sub);
+  margin-left: 6px;
+  font-size: 0.75em;
+}
+
+/* The live-session strip above the main view. */
+.live-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  border-bottom: 1px solid var(--steel-border);
+  padding: 0 0 10px;
+  margin-bottom: 16px;
+}
+
+.live-chip {
+  display: inline-flex;
+  gap: 7px;
+  align-items: baseline;
+  border: 1px solid var(--steel-border);
+  padding: 3px 9px;
+  font-size: 0.82rem;
+  color: var(--text-body);
+}
+
+.live-chip.is-live {
+  border-color: var(--success);
+}
+
+.live-chip.is-stale {
+  opacity: 0.55;
+}
+
+.live-chip .pulse {
+  color: var(--success);
+}
+
+/* A horizontal bar for comparing counts inside a table cell, so a tool mix or a
+   hook cost reads at a glance without pulling in a chart library. */
+.bar-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bar-track {
+  flex: 1;
+  height: 6px;
+  background: var(--surface-dark);
+  min-width: 40px;
+}
+
+.bar-fill {
+  height: 100%;
+  background: var(--primary);
+}
+
+.bar-fill.warn {
+  background: var(--warn);
+}
+
+/* Compact data table shared by the sessions, hooks and tasks views. */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+
+.data-table th {
+  text-align: left;
+  color: var(--text-sub);
+  font-weight: 500;
+  border-bottom: 1px solid var(--steel-border);
+  padding: 6px 10px 6px 0;
+  white-space: nowrap;
+}
+
+.data-table td {
+  border-bottom: 1px solid var(--surface-mid);
+  padding: 7px 10px 7px 0;
+  vertical-align: top;
+}
+
+.data-table tr:hover td {
+  background: var(--surface-mid);
+}
+
+.num-cell {
+  font-family: var(--font-mono);
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* Plain-language digest of one record. Set apart from the body text it summarises
+   so a reader never has to work out which is which. */
+.digest {
+  border: 1px solid var(--steel-border);
+  border-left: 3px solid var(--primary);
+  background: var(--surface-mid);
+  padding: 12px 14px;
+  margin-bottom: 14px;
+}
+
+.digest-head {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.digest-line {
+  display: flex;
+  gap: 9px;
+  align-items: baseline;
+  margin-bottom: 7px;
+}
+
+.digest-text {
+  color: var(--text-body);
+  line-height: 1.5;
+}
+
+.digest-foot {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  border-top: 1px solid var(--steel-border);
+  margin-top: 10px;
+  padding-top: 8px;
+}
+
+/* A chip used as a label rather than a control. */
+.chip.static {
+  cursor: default;
+  opacity: 0.8;
+}
+
+/* Matched terms inside a search excerpt. */
+.hit-mark {
+  background: transparent;
+  color: var(--spark);
+  font-weight: 700;
+}
+
+/* Command palette, on the native <dialog> element. */
+.palette::backdrop {
+  background: rgba(8, 9, 12, 0.72);
+}
+
+.palette {
+  border: 1px solid var(--primary);
+  background: var(--surface-card);
+  color: var(--text-body);
+  padding: 0;
+  width: min(720px, 92vw);
+  margin-top: 12vh;
+}
+
+.palette-panel {
+  display: flex;
+  flex-direction: column;
+}
+
+.palette-input {
+  border: 0 !important;
+  border-bottom: 1px solid var(--steel-border) !important;
+  background: var(--surface-mid);
+  padding: 14px 16px;
+  font-size: 15px;
+  width: 100%;
+}
+
+.palette-rows {
+  max-height: 52vh;
+  overflow-y: auto;
+}
+
+.palette-row {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-left: 3px solid transparent;
+  padding: 9px 16px;
+  font-weight: 400;
+}
+
+.palette-row.selected {
+  background: var(--surface-mid);
+  border-left-color: var(--ember);
+}
+
+.palette-label {
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.palette-empty {
+  padding: 18px 16px;
+}
+
+.palette-foot {
+  border-top: 1px solid var(--steel-border);
+  padding: 9px 16px;
+  line-height: 1.5;
+}
+
+/* Prompts by hour of day. A row of equal columns, each a fixed-height track with
+   its bar anchored to the bottom, so the shape reads as a chart standing on a
+   baseline rather than one hanging from the heading. */
+.hour-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  margin: 4px 0 22px;
+}
+
+.hour-col {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.hour-track {
+  display: flex;
+  align-items: flex-end;
+  height: 62px;
+}
+
+.hour-bar {
+  width: 100%;
+  background: var(--primary);
+}
+
+/* Ember is rationed to one emphasis per view; here it is the busiest hour. */
+.hour-bar.peak {
+  background: var(--ember);
+}
+
+.hour-tick {
+  color: var(--text-sub);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  text-align: center;
+  margin-top: 3px;
+}
+
+/* ==========================================================================
+   Instrument components
+   ========================================================================== */
+
+/* A view title is an instrument label: heavy, tight, and sitting on an etched
+   rule that runs the width of the panel. The rule is the device that makes a
+   screen read as a machined face rather than as a document. */
+.view-title {
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  margin: 0 0 6px;
+  color: var(--text);
+}
+
+.view-title .accent {
+  color: var(--bounded);
+  /* The accent stays in the same weight; only hue separates it, because a size
+     change here would read as two headings rather than one label. */
+}
+
+.view-sub {
+  color: var(--text-sub);
+  margin: 0 0 18px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--rule-etched);
+  font-size: 12.5px;
+  max-width: 96ch;
+  line-height: 1.55;
+}
+
+/* ---- readouts ----------------------------------------------------------- */
+
+/* A figure carries the status of its own evidence on a rail down its left edge.
+   Steel is the default because most figures are read straight off disk; a view
+   that knows better sets .derived, .bounded, or .unknown on the tile. */
+.stat-tile {
+  background: var(--surface-card);
+  border: 1px solid var(--steel-border);
+  border-left: var(--rail) solid var(--measured);
+  padding: 12px 16px 12px 14px;
+  position: relative;
+}
+
+.stat-tile.derived {
+  border-left-color: var(--derived);
+}
+.stat-tile.bounded {
+  border-left-color: var(--bounded);
+}
+.stat-tile.unknown {
+  border-left-color: var(--unknown);
+}
+
+.stat-tile .num {
+  font-size: 27px;
+  font-weight: 700;
+  line-height: 1.05;
+  color: var(--text);
+  font-family: var(--font-mono);
+  letter-spacing: -0.01em;
+}
+
+.stat-tile .num.accent {
+  color: var(--bounded);
+}
+
+/* The label sits under the figure and is never as bright as it, so the eye lands
+   on the number first and reads what it is second. */
+.stat-tile .row-meta,
+.stat-tile .label {
+  display: block;
+  margin-top: 5px;
+  font-size: 10.5px;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-sub);
+}
+
+/* Where a figure came from, set below its label and separated by a hairline. The
+   footing is the whole point of the rail: the colour says which kind of claim the
+   number is, and this says the specific basis for it. */
+.footing {
+  margin-top: 9px;
+  padding-top: 7px;
+  border-top: 1px solid var(--steel-border);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--text-sub);
+}
+
+/* A legend for the four marks, so the rails are readable without a manual. */
+.rail-legend {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin: -6px 0 20px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-sub);
+}
+
+.rail-legend span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.rail-legend span::before {
+  content: "";
+  width: 14px;
+  height: var(--rail);
+  background: currentColor;
+}
+
+.rail-legend .is-measured {
+  color: var(--measured);
+}
+.rail-legend .is-derived {
+  color: var(--derived);
+}
+.rail-legend .is-bounded {
+  color: var(--bounded);
+}
+.rail-legend .is-unknown {
+  color: var(--unknown);
+}
+
+/* ---- scales ------------------------------------------------------------- */
+
+/* Bars become scales: a tick-marked track, so a length can be read as a value
+   instead of only compared to its neighbours. */
+.bar-track {
+  background: var(--surface-dark);
+  border: 1px solid var(--steel-border);
+  position: relative;
+  height: 9px;
+}
+
+.bar-track::after {
+  /* Quarter ticks etched into the track. */
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: repeating-linear-gradient(
+    to right,
+    var(--steel-border) 0 1px,
+    transparent 1px 25%
+  );
+  pointer-events: none;
+}
+
+.bar-fill {
+  background: var(--measured);
+  height: 100%;
+  position: relative;
+  z-index: 1;
+}
+
+.bar-fill.warn {
+  background: var(--bounded);
+}
+
+/* ---- tables ------------------------------------------------------------- */
+
+.data-table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.data-table th {
+  text-align: left;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-sub);
+  border-bottom: 1px solid var(--rule-etched);
+  padding: 7px 10px;
+  white-space: nowrap;
+}
+
+.data-table td {
+  border-bottom: 1px solid var(--steel-border);
+  padding: 8px 10px;
+  vertical-align: top;
+}
+
+.data-table tr:hover td {
+  background: var(--surface-mid);
+}
+
+.num-cell {
+  text-align: right;
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+
+/* A wide table scrolls inside its own frame; the page itself must never scroll
+   sideways, which is what a fixed sidebar plus a dense table would otherwise do. */
+.table-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--steel-border);
+}
+
+/* ---- shell ------------------------------------------------------------- */
+
+.nav {
+  width: 208px;
+  border-right: 1px solid var(--rule-etched);
+  background: var(--surface-mid);
+}
+
+.nav-brand .title {
+  letter-spacing: 0.13em;
+  font-size: 13px;
+}
+
+.nav a.nav-item {
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 9px 16px;
+}
+
+.nav a.nav-item.active {
+  border-left-color: var(--bounded);
+}
+
+/* ---- quality floor ----------------------------------------------------- */
+
+/* Keyboard focus must be visible on a dark ground, and the default ring is not. */
+:focus-visible {
+  outline: 2px solid var(--measured);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ==========================================================================
+   Narrow widths
+   --------------------------------------------------------------------------
+   Two things break first, and neither shows up as page overflow, which is why
+   they survived until they were measured: the master/detail grid keeps handing
+   its second column a width nobody can read (186px at 768, 0px at 430), and the
+   fixed sidebar takes 208px of a 430px viewport. So the split collapses to one
+   column well before it degrades, and the sidebar becomes a scrolling strip
+   across the top rather than shrinking.
+   ========================================================================== */
+
+@media (max-width: 1180px) {
+  .split {
+    grid-template-columns: 1fr;
+  }
+
+  /* Once stacked, a sticky detail pane would cover the list it belongs to. */
+  .detail-pane {
+    position: static;
+    max-height: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .shell {
+    flex-direction: column;
+    height: auto;
+    min-height: 100%;
+    /* The page keeps one axis. Anything too wide scrolls in its own frame. */
+    overflow-x: hidden;
+  }
+
+  .nav {
+    width: 100%;
+    /* Without this the strip's own items widen the document rather than scrolling
+       inside it: a flex item's min-width is auto, so it refuses to be narrower
+       than its content and overflow-x never gets a chance to apply. */
+    min-width: 0;
+    max-width: 100%;
+    flex-direction: row;
+    align-items: center;
+    gap: 4px;
+    overflow-x: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--rule-etched);
+    position: sticky;
+    top: 0;
+    z-index: 5;
+  }
+
+  .nav-brand {
+    border-bottom: none;
+    border-right: 1px solid var(--steel-border);
+    padding: 10px 14px;
+    flex-shrink: 0;
+  }
+
+  .nav-brand .sub {
+    display: none;
+  }
+
+  .nav a.nav-item {
+    border-left: none;
+    border-bottom: 3px solid transparent;
+    white-space: nowrap;
+    padding: 12px 12px;
+  }
+
+  .nav a.nav-item.active {
+    border-left: none;
+    border-bottom-color: var(--bounded);
+  }
+
+  /* The footer holds the loopback reminder, which belongs on screen but not in a
+     horizontal nav strip; it moves to the end of the scroll instead. */
+  .nav-foot {
+    margin-top: 0;
+    margin-left: auto;
+    border-top: none;
+    padding: 10px 14px;
+    white-space: nowrap;
+  }
+
+  .main {
+    padding: 18px 16px;
+    overflow-y: visible;
+  }
+
+  .stat-grid {
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .stat-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .stat-tile .num {
+    font-size: 22px;
+  }
+
+  .main {
+    padding: 14px 12px;
+  }
+
+  /* A dense table cannot be made narrow, so it scrolls in its own frame and the
+     page keeps its single vertical axis. */
+  .data-table {
+    display: block;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+
+  .view-sub {
+    max-width: none;
+  }
+}
+
+/* ---- chart series ------------------------------------------------------- */
+
+/* Categorical series colours, kept strictly apart from the four provenance
+   marks above. A chart series that could be mistaken for a status rail would
+   undo the one system this palette exists to carry, so these were not chosen by
+   eye: each was searched in OKLCH and checked against every reserved mark, and
+   the closest pair is 15.1 ΔE apart in normal vision (the floor is 15).
+
+   As a categorical palette in their own right they pass the same gates on both
+   the card and the page surface - worst adjacent pair 23.1 ΔE under deuteranopia
+   against a target of 8, and every one clears 3:1 contrast.
+
+   Fixed order, never cycled: colour follows the series, not its rank, so
+   filtering a series out must not repaint the ones that remain. Past four,
+   fold into "other" rather than inventing a fifth hue - red and green here are
+   deliberately non-adjacent, and a generated fifth would not be. These are for
+   stacked, bar and line charts, where only adjacent pairs must separate; they
+   are not validated for scatter or small multiples, which need all pairs to
+   clear at once. */
+:root {
+  --series-1: #217bf4;
+  --series-2: #ec5022;
+  --series-3: #c458cf;
+  --series-4: #49ac0d;
+
+  /* Chart chrome, so axes and grids recede rather than compete with the marks. */
+  --chart-axis: #8b939f;
+  --chart-grid: #333a45;
+}
+
+/* A sortable column heading. It stays a heading first: the same weight, tracking
+   and colour as a static one, with the affordance appearing on hover and the
+   active column marked by ink rather than by a second colour. */
+.sort-header {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.sort-header:hover {
+  color: var(--text);
+  border-color: transparent;
+}
+
+.sort-header.active {
+  color: var(--text);
+}
+
+/* Reserved space, so turning sorting on does not shift the heading sideways. */
+.sort-arrow {
+  opacity: 0.35;
+  font-size: 9px;
+  width: 8px;
+  display: inline-block;
+}
+
+.sort-header.active .sort-arrow {
+  opacity: 1;
+  color: var(--bounded);
+}
+
+.num-cell .sort-header {
+  justify-content: flex-end;
+  width: 100%;
+}
+
+/* ---- overview ----------------------------------------------------------- */
+
+.overview-strips {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 10px;
+}
+
+.overview-strip-title {
+  display: block;
+  color: var(--text);
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.overview-strip-title:hover {
+  color: var(--bounded);
+  text-decoration: none;
+}
+
+.overview-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+}
+
+/* The name is allowed to shrink and clip; the figure never is, because a truncated
+   number is a wrong number while a truncated label is still a label. */
+.overview-row-name {
+  flex: 0 0 40%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--text-body);
+}
+
+.overview-row-count {
+  flex: 0 0 auto;
+  font-size: 11.5px;
+  color: var(--text-sub);
+}
+
+.attention-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+/* Each row is a link, so the whole thing is one target rather than a count beside
+   a separate "view" affordance. */
+.attention-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--surface-card);
+  border: 1px solid var(--steel-border);
+  border-left: var(--rail) solid var(--steel-border);
+  color: var(--text-body);
+}
+
+.attention-row:hover {
+  border-color: var(--measured);
+  border-left-color: var(--measured);
+  text-decoration: none;
+}
+
+/* Ember marks the ones past a threshold the page states, never merely the largest. */
+.attention-row.urgent {
+  border-left-color: var(--bounded);
+}
+
+.attention-count {
+  font-family: var(--font-mono);
+  font-size: 19px;
+  font-weight: 700;
+  color: var(--text);
+  flex-shrink: 0;
+}
+
+.attention-row.urgent .attention-count {
+  color: var(--bounded);
+}
+
+.attention-of {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-sub);
+}
+
+.attention-label {
+  font-size: 12.5px;
+  line-height: 1.45;
+}
