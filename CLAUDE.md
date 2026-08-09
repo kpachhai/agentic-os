@@ -90,6 +90,14 @@ list instead - an empty pillar reads as "no data", which is a different claim.
   directory is recognised by its name being a session id: a plugin also writes
   `.jsonl` beside the transcripts, and accepting any sibling directory invented an
   owning session named after the plugin.
+- **A title is a label; a message body is content.** Terminal escapes are stripped
+  from every string the session reader produces, because an escape is noise
+  wherever it lands. The slash-command envelope and markdown block markers are
+  stripped from the *title only*: a `<command-name>` block or a `#` heading inside
+  a timeline body is content the reader asked to see. Measured on the real corpus
+  before this split existed, 145 of 482 titles opened with a markdown marker, 30
+  carried a harness tag, and 29 timeline entries across 17 sessions still held raw
+  escape bytes. Never apply `titleLine` to `TimelineEntry.text`.
 - **Stored file versions are addressed by session, not by file.** Version numbers
   restart per session, and the same file versioned in two sessions reuses them for
   different content, so the addressable unit is the `(sessionId, hash, version)`

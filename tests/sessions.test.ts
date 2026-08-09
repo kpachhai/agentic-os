@@ -484,3 +484,169 @@ describe("blast radius", () => {
     expect(detail.blastRadius.edits).toBe(2);
   });
 });
+
+/** A user record carrying nothing but the given text, so a title can be read off it. */
+function prompt(uuid: string, text: string, overrides: Record<string, unknown> = {}) {
+  return userRecord({ uuid, message: { role: "user", content: text }, ...overrides });
+}
+
+function titleOf(): string {
+  const [session] = listSessions(root);
+  if (!session) throw new Error("fixture session did not load");
+  return session.title;
+}
+
+describe("a title is a label, not the first thing in the file", () => {
+  it("names the run after the operator, not the slash-command envelope", () => {
+    // The harness writes the envelope and the command's own stdout as ordinary
+    // non-meta user records, so the meta filter never sees them.
+    writeTranscript(PROJECT_DIR, SESSION_ID, [
+      prompt("u0", "<local-command-caveat>Caveat: ...</local-command-caveat>", {
+        isMeta: true,
+      }),
+      prompt(
+        "u1",
+        "<command-name>/effort</command-name>\n            <command-message>effort</command-message>\n            <command-args></command-args>",
+      ),
+      prompt("u2", "<local-command-stdout>Set effort to ultracode</local-command-stdout>"),
+      prompt("u3", "Harden the launch bounds"),
+    ]);
+
+    expect(titleOf()).toBe("Harden the launch bounds");
+  });
+
+  it("falls back to the session id when every record is envelope", () => {
+    writeTranscript(PROJECT_DIR, SESSION_ID, [
+      prompt("u1", "<command-name>/clear</command-name>"),
+      prompt("u2", "<local-command-stdout>cleared</local-command-stdout>"),
+    ]);
+
+    expect(titleOf()).toBe(SESSION_ID);
+    expect(listSessions(root)[0]!.titleSource).toBe("session-id");
+  });
+
+  it("keeps prose that shares a record with an envelope", () => {
+    writeTranscript(PROJECT_DIR, SESSION_ID, [
+      prompt(
+        "u1",
+        "<command-name>/commit</command-name>\n<command-args></command-args>\nalso push it when the tests pass",
+      ),
+    ]);
+
+    expect(titleOf()).toBe("also push it when the tests pass");
+  });
+
+  it("still prefers an explicit ai-title over any prompt", () => {
+    writeTranscript(PROJECT_DIR, SESSION_ID, [
+      prompt("u1", "<command-name>/effort</command-name>"),
+      prompt("u2", "some later prose"),
+      { type: "ai-title", sessionId: SESSION_ID, aiTitle: "Harden launch bounds" },
+    ]);
+
+    expect(titleOf()).toBe("Harden launch bounds");
+  });
+
+  it("names the run after the heading, not the whole markdown document", () => {
+    writeTranscript(PROJECT_DIR, SESSION_ID, [
+      prompt(
+        "u1",
+        "# HANDOFF - continue the rename\n\n> This file is the complete state.\n\nPicking up mid-stream.",
+      ),
+    ]);
+
+    expect(titleOf()).toBe("HANDOFF - continue the rename");
+  });
+
+  it("strips nested block markers", () => {
+    writeTranscript(PROJECT_DIR, SESSION_ID, [
+      prompt("u1", "> - # dig into the flaky payment test"),
+    ]);
+
+    expect(titleOf()).toBe("dig into the flaky payment test");
+  });
+
+  it("falls back to the session id when the prompt is only markers", () => {
+    // `---` separators and bare `###` carry no word, so no label can be made.
+    writeTranscript(PROJECT_DIR, SESSION_ID, [prompt("u1", "###\n\n>\n\n- \n")]);
+
+    expect(titleOf()).toBe(SESSION_ID);
+  });
+
+  it("leaves the message body alone - markdown there is content, not decoration", () => {
+    writeTranscript(PROJECT_DIR, SESSION_ID, [
+      prompt(
+        "u1",
+        "# HANDOFF - continue the rename\n\n> This file is the complete state.",
+      ),
+    ]);
+
+    const entry = getSession(root, PROJECT_DIR, SESSION_ID)!.timeline.find(
+      (e) => e.uuid === "u1",
+    );
+    expect(entry!.text).toContain("# HANDOFF - continue the rename");
+    expect(entry!.text).toContain("> This file is the complete state.");
+  });
+});
+
+describe("terminal escape sequences", () => {
+  // Escapes are written as \u001b rather than as raw bytes: a literal ESC in
+  // this source would be invisible to anyone reading or editing the fixture.
+  function writeEscapes(): void {
+    writeTranscript(PROJECT_DIR, SESSION_ID, [
+      prompt("u1", "Set model to \u001b[1mFable 5\u001b[22m now"),
+      assistantRecord({
+        uuid: "a1",
+        message: {
+          role: "assistant",
+          model: "claude-opus-5",
+          content: [
+            { type: "text", text: "\u001b[2Ktransforming...\u001b[2K built in 218ms" },
+          ],
+        },
+      }),
+      assistantRecord({
+        uuid: "a2",
+        parentUuid: "a1",
+        message: {
+          role: "assistant",
+          model: "claude-opus-5",
+          content: [{ type: "text", text: "plain prose, no escapes" }],
+        },
+      }),
+    ]);
+  }
+
+  it("strips colour codes from the title", () => {
+    writeEscapes();
+    expect(titleOf()).toBe("Set model to Fable 5 now");
+  });
+
+  it("strips erase-line codes from timeline text", () => {
+    writeEscapes();
+    const entry = getSession(root, PROJECT_DIR, SESSION_ID)!.timeline.find(
+      (e) => e.uuid === "a1",
+    );
+    expect(entry!.text).toBe("transforming... built in 218ms");
+  });
+
+  it("leaves text without escapes untouched", () => {
+    writeEscapes();
+    const entry = getSession(root, PROJECT_DIR, SESSION_ID)!.timeline.find(
+      (e) => e.uuid === "a2",
+    );
+    expect(entry!.text).toBe("plain prose, no escapes");
+  });
+
+  it("leaves no escape byte in any timeline text", () => {
+    // Built from a char code on purpose: an escape written literally here is an
+    // invisible byte in the source, and asserting against the JSON string would
+    // pass vacuously, since JSON.stringify renders ESC in its escaped
+    // six-character form rather than as a raw byte.
+    writeEscapes();
+    const esc = String.fromCharCode(27);
+    const leaked = getSession(root, PROJECT_DIR, SESSION_ID)!.timeline.filter((e) =>
+      e.text.includes(esc),
+    );
+    expect(leaked).toEqual([]);
+  });
+});

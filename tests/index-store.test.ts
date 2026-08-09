@@ -153,6 +153,60 @@ describe("syncIndex", () => {
     db.close();
   });
 
+  it("gives a search hit a label, not the head of a markdown document", () => {
+    writeTranscript("-tmp-project", "sess-md", [
+      userTurn("# HANDOFF - continue the rename\n\n> state follows\n\nreal ask here"),
+    ]);
+    const db = openIndex(indexPath);
+    syncIndex(db, config);
+
+    const [hit] = searchIndex(db, "rename", { kind: "session" });
+    expect(hit!.title).toBe("HANDOFF - continue the rename");
+    db.close();
+  });
+
+  it("keeps the command envelope out of a search hit's title", () => {
+    writeTranscript("-tmp-project", "sess-cmd", [
+      userTurn("<command-name>/effort</command-name>\n<command-args></command-args>"),
+      userTurn("harden the launcher bounds"),
+    ]);
+    const db = openIndex(indexPath);
+    syncIndex(db, config);
+
+    const [hit] = searchIndex(db, "launcher", { kind: "session" });
+    expect(hit!.title).toBe("harden the launcher bounds");
+    db.close();
+  });
+
+  it("still indexes a session whose prompts are only envelopes", () => {
+    // No label can be made, but the body is still worth matching, so the
+    // document must survive with the session id standing in for a title.
+    writeTranscript("-tmp-project", "sess-env", [
+      userTurn("<command-name>/clear</command-name>"),
+    ]);
+    const db = openIndex(indexPath);
+    syncIndex(db, config);
+
+    const [hit] = searchIndex(db, "clear", { kind: "session" });
+    expect(hit).toBeDefined();
+    expect(hit!.title).toBe("sess-env");
+    db.close();
+  });
+
+  it("leaves no escape byte in an indexed title or body", () => {
+    writeTranscript("-tmp-project", "sess-esc", [
+      userTurn("Set model to \u001b[1mFable 5\u001b[22m now"),
+    ]);
+    const db = openIndex(indexPath);
+    syncIndex(db, config);
+
+    const esc = String.fromCharCode(27);
+    const [hit] = searchIndex(db, "Fable", { kind: "session" });
+    expect(hit!.title).toBe("Set model to Fable 5 now");
+    expect(JSON.stringify(hit).includes(esc)).toBe(false);
+    db.close();
+  });
+
   it("skips a file whose identity has not changed", () => {
     writeTranscript("-tmp-project", "sess-1", [userTurn("first prompt")]);
     const db = openIndex(indexPath);

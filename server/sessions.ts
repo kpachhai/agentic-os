@@ -162,16 +162,79 @@ function usageTokens(message: Record<string, unknown>): TokenTotals | null {
 }
 
 /**
+ * Terminal escape sequences, which reach a transcript whenever a command
+ * colorizes or repaints its output. They are invisible in a terminal and
+ * meaningless in a browser, where they render as literal noise -
+ * `Set model to \x1b[1mFable 5\x1b[22m` reads as `Set model to [1mFable 5 [22m`
+ * on screen.
+ *
+ * Three shapes, most specific first: CSI (colors, cursor moves, erase-line), OSC
+ * (window titles and hyperlinks, which run until a terminator), then any
+ * remaining two-character escape as cleanup.
+ */
+const ANSI_ESCAPE = /\x1b\[[0-9;:?]*[@-~]|\x1b\][\s\S]*?(?:\x07|\x1b\\)|\x1b./g;
+
+/**
+ * Strip escapes from text bound for a screen. The `includes` guard is not
+ * decoration: this runs on every record of every session, and the overwhelming
+ * majority of them contain no escape at all.
+ */
+export function stripAnsi(text: string): string {
+  return text.includes("\x1b") ? text.replace(ANSI_ESCAPE, "") : text;
+}
+
+/**
+ * Markers that open a markdown block: headings, quotes, bullets, ordered items.
+ */
+const MARKDOWN_BLOCK_MARKER = /^\s*(?:#{1,6}\s+|>\s*|[-*+]\s+|\d+[.)]\s+)/;
+
+/**
+ * A one-line label for a session, from whatever the operator typed first.
+ *
+ * First prompts are routinely whole markdown documents, and flattening one into
+ * a single line drags its heading marker and the paragraph beneath it into the
+ * title: `# HANDOFF - continue this work > This file is the complete state...`.
+ * Taking the first line that carries words, minus its block marker, reads the
+ * way a commit subject does.
+ *
+ * Deliberately NOT applied to timeline text. Markdown in a message body is
+ * content the reader asked to see; only the title needs to be a label.
+ */
+export function titleLine(prose: string): string {
+  for (const rawLine of prose.split("\n")) {
+    // Strip nested markers, so `> - note` reduces to `note`. Each pass removes
+    // at least one character, so this terminates.
+    let line = rawLine;
+    for (;;) {
+      const stripped = line.replace(MARKDOWN_BLOCK_MARKER, "");
+      if (stripped === line) break;
+      line = stripped;
+    }
+    // A line has to carry a word to be a label. This is what rules out the
+    // punctuation-only lines a markdown document is full of - `---` separators,
+    // `===` underlines, bare `###`, table rules - each of which would otherwise
+    // become the name of the session.
+    const text = line.trim();
+    if (/[\p{L}\p{N}]/u.test(text)) return text;
+  }
+  return "";
+}
+
+/**
  * Message content is either a plain string or an array of typed blocks. Pull the
  * prose out of both shapes and note every tool call, ignoring block kinds that
  * carry no text a reader would want.
+ *
+ * Escapes are removed here rather than at each display site because this is the
+ * single place display text is produced: both the session title and every
+ * timeline entry read from it.
  */
 function readContent(message: Record<string, unknown>): {
   text: string;
   toolUses: string[];
 } {
   const content = message.content;
-  if (typeof content === "string") return { text: content, toolUses: [] };
+  if (typeof content === "string") return { text: stripAnsi(content), toolUses: [] };
   if (!Array.isArray(content)) return { text: "", toolUses: [] };
 
   const parts: string[] = [];
@@ -187,12 +250,53 @@ function readContent(message: Record<string, unknown>): {
       toolUses.push(str(block, "name") || "unknown");
     }
   }
-  return { text: parts.join("\n\n"), toolUses };
+  return { text: stripAnsi(parts.join("\n\n")), toolUses };
 }
 
 function tally(counts: Map<string, number>, key: string): void {
   if (!key) return;
   counts.set(key, (counts.get(key) ?? 0) + 1);
+}
+
+/**
+ * Elements the harness writes into a user record rather than the operator: the
+ * slash-command envelope and whatever the command printed. Unlike injected
+ * context, these arrive with isMeta unset, so the meta filter never sees them
+ * and a session opened with `/effort` would otherwise be named
+ * `<command-name>/effort</command-name>`.
+ */
+const HARNESS_ELEMENTS = [
+  "command-name",
+  "command-message",
+  "command-args",
+  "local-command-caveat",
+  "local-command-stdout",
+  "local-command-stderr",
+  "system-reminder",
+];
+
+const HARNESS_BLOCK = new RegExp(
+  `<(${HARNESS_ELEMENTS.join("|")})>[\\s\\S]*?</\\1>`,
+  "g",
+);
+
+// A truncated record can leave an opening or closing tag without its partner.
+// Dropping the stray tag keeps angle-bracket noise out of the title without
+// swallowing the prose that follows it.
+const HARNESS_STRAY_TAG = new RegExp(
+  `</?(?:${HARNESS_ELEMENTS.join("|")})>`,
+  "g",
+);
+
+/**
+ * What the operator actually typed, or "" when the record is nothing but
+ * harness bookkeeping. Prose sharing a record with an envelope survives.
+ */
+export function operatorProse(text: string): string {
+  return text
+    .replace(HARNESS_BLOCK, " ")
+    .replace(HARNESS_STRAY_TAG, " ")
+    .trim();
 }
 
 /** Counts as a list, most frequent first, with the name as a stable tiebreaker. */
@@ -364,9 +468,10 @@ function absorb(
     accumulator.userTurns++;
     // A meta record is context the harness injected and a sidechain record
     // belongs to a subagent; neither is something the operator typed, so
-    // neither should become the session's name.
+    // neither should become the session's name. An envelope-only record leaves
+    // firstPrompt empty, so the search simply continues to the next turn.
     if (!accumulator.firstPrompt && !isMeta && !isSidechain && content.text) {
-      accumulator.firstPrompt = content.text;
+      accumulator.firstPrompt = operatorProse(content.text);
     }
     const denial = str(record, "toolDenialKind");
     if (denial) tally(accumulator.denials, denial);
@@ -424,10 +529,14 @@ function summarize(
   file: { sessionId: string; projectDir: string; mtimeMs: number; sizeBytes: number },
   skippedLines: number,
 ): SessionSummary {
-  const title = accumulator.aiTitle || accumulator.firstPrompt || file.sessionId;
+  // A harness-written title is already a label and is left alone; a first prompt
+  // has to be reduced to one. A prompt that is nothing but markdown markers
+  // yields no label at all, which correctly falls through to the session id.
+  const promptTitle = titleLine(accumulator.firstPrompt);
+  const title = accumulator.aiTitle || promptTitle || file.sessionId;
   const titleSource: SessionSummary["titleSource"] = accumulator.aiTitle
     ? "ai-title"
-    : accumulator.firstPrompt
+    : promptTitle
       ? "first-prompt"
       : "session-id";
 

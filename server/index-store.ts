@@ -4,6 +4,7 @@ import Database from "better-sqlite3";
 import type { AppConfig } from "./config.js";
 import { allThoughts, getThought } from "./engram.js";
 import { readFrictionLog } from "./friction.js";
+import { operatorProse, stripAnsi, titleLine } from "./sessions.js";
 import { listTranscriptFiles, streamTranscript } from "./transcripts.js";
 import { getWrap, listWraps } from "./wraps.js";
 
@@ -262,17 +263,32 @@ function sessionDocument(file: {
         .map((block) => block.text)
         .join("\n");
     }
+    // Escapes are noise wherever they land, so the searchable body loses them
+    // too. Markdown markers and command envelopes are left in the body on
+    // purpose: the body is what a query matches against, and a prompt the
+    // operator wrote as a document should still be findable by its own words.
+    text = stripAnsi(text);
     if (!text.trim()) continue;
     prompts.push(text);
-    if (!firstPrompt) firstPrompt = text;
+    if (!firstPrompt) firstPrompt = operatorProse(text);
   }
 
-  if (!title && !firstPrompt) return null;
+  // A hit's title is a label, held to the same rule as a session title, or the
+  // search results read as a wall of `# HANDOFF` and `<command-name>` fragments.
+  // Indexability is decided by whether there is anything to search, not by
+  // whether a label could be made: a session whose only prompts are command
+  // envelopes still has a body worth matching, and falls back to its id the way
+  // the session list does.
+  const promptTitle = titleLine(firstPrompt);
+  if (!title && prompts.length === 0) return null;
   return {
     kind: "session",
     ref: file.sessionId,
     locator: file.projectDir,
-    title: (title || firstPrompt).replace(/\s+/g, " ").trim().slice(0, 140),
+    title: (title || promptTitle || file.sessionId)
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 140),
     timestamp: firstTimestamp,
     filePath: file.filePath,
     body: prompts.join("\n\n"),
