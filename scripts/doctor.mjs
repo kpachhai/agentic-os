@@ -104,6 +104,16 @@ const SOURCES = [
     remedy: "Written by Claude Code whenever it edits a file. Absent means no edit has been recorded as this user.",
   },
   {
+    key: "usageDataDir",
+    label: "insights usage data",
+    fallback: "~/.claude/usage-data",
+    kind: "dir",
+    tier: "universal",
+    powers: "the Outcomes pillar, and the friction your sessions had that never reached your log",
+    remedy:
+      "Written by Claude Code's /insights command, in one pass, and never refreshed afterwards. Absent means you have not run it; stale means you have not run it lately, which is why every view over it shows its coverage and the date it was generated.",
+  },
+  {
     key: "claudeMdPath",
     label: "global instruction file",
     fallback: "~/.claude/CLAUDE.md",

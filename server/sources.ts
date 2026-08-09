@@ -49,6 +49,7 @@ function probes(config: AppConfig): Probe[] {
     { key: "delegation", label: "subagent dispatches", tier: "universal", kind: "dir", paths: [config.transcriptsDir] },
     { key: "instructions", label: "always-loaded instructions", tier: "universal", kind: "file", paths: [config.claudeMdPath] },
     { key: "skillTrend", label: "skill attribution history", tier: "universal", kind: "dir", paths: [config.transcriptsDir] },
+    { key: "usageData", label: "insights usage data", tier: "universal", kind: "dir", paths: [config.usageDataDir] },
     { key: "engram", label: "memory vault", tier: "personal", kind: "dir", paths: [config.engramVaultPath] },
     { key: "graph", label: "memory link graph", tier: "universal", kind: "dir", paths: [config.transcriptsDir] },
     { key: "friction", label: "friction log", tier: "personal", kind: "file", paths: [config.frictionLogPath] },

@@ -384,6 +384,80 @@ button:disabled {
   margin-top: 4px;
 }
 
+/* A heading that separates two kinds of claim inside one pillar, where a second
+   h1 would read as a second page. */
+.section-title {
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 26px 0 4px;
+}
+
+/* A panel whose figures come from a different source than the page around it.
+   The rule on the left is the seam: without it the counts read as part of the
+   pillar's own totals. */
+.gap-panel {
+  border-left: 2px solid var(--bounded);
+  padding-left: 14px;
+  margin: 22px 0 8px;
+}
+
+.gap-panel .section-title {
+  margin-top: 0;
+}
+
+/* A denominator riding along with a count, so coverage cannot be read as a
+   total. Sized down deliberately: it qualifies the number, it is not one. */
+.num-sub {
+  font-size: 0.55em;
+  color: var(--muted);
+  letter-spacing: 0;
+}
+
+/* Distributions over categories that are model judgements, not measurements.
+   Bars are proportional within one card only; two cards are never comparable,
+   which is why no axis or percentage is drawn. */
+.dist-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.dist-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 80px 28px;
+  gap: 8px;
+  align-items: center;
+  padding: 2px 0;
+  font-size: 12px;
+}
+
+.dist-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dist-bar {
+  background: var(--panel-2, rgba(255, 255, 255, 0.06));
+  height: 6px;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.dist-fill {
+  display: block;
+  height: 100%;
+  background: var(--unknown);
+}
+
+.dist-count {
+  text-align: right;
+  color: var(--muted);
+}
+
 /* markdown body rendering */
 .md-body {
   line-height: 1.55;

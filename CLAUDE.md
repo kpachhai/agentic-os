@@ -212,6 +212,25 @@ list instead - an empty pillar reads as "no data", which is a different claim.
   `--sequence.shuffle` that produced 3 failures in one run and 1 in another. The
   gate instead retries once, and only when a worker failed to start and no test
   failed. Speed that costs isolation is not speed.
+- **The `/insights` store is a snapshot, not a feed.** `~/.claude/usage-data` is
+  written in one pass when the operator runs that command and is never refreshed:
+  all 200 statistics files shared one mtime and the 32 judgement files another,
+  against 490 transcripts. So it is optional, stale by default, and sparse, and
+  every figure derived from it ships with its coverage counts and the date it was
+  generated. A count from it rendered bare would read as a statement about all of
+  the operator's work when it is a statement about a third of it.
+- **A facet is an opinion; nothing computes with it.** `outcome`,
+  `claude_helpfulness`, `session_type`, `primary_success` and the goal categories
+  are a model's reading of a transcript with no ground truth on disk. They are
+  displayed as the categories they are, they carry the unknown rail, and no score
+  is derived from them - a single number averaged over opinions would be the most
+  confident-looking and least defensible figure in the tool.
+- **The friction gap is a time-window join, never a semantic one.** The log is
+  organised by the operator's capture prefixes and the judgements use a disjoint
+  vocabulary (`buggy_code`, `missing_configuration`), so no mapping between them
+  exists to be computed. The question asked is the weaker one the evidence
+  supports: was anything logged while this session was running. "Logged" never
+  claims the entry was about that friction.
 - **Fail fast and loud.** No silent port hopping, no swallowed config errors, no
   empty catch blocks. A wrong config should crash, not degrade quietly.
 

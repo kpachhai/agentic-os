@@ -30,6 +30,9 @@ const ROUTES = [
   { hash: "#/skills", dataSelector: ".card" },
   { hash: "#/hooks", dataSelector: ".data-table tbody tr" },
   { hash: "#/tasks", dataSelector: ".data-table tbody tr, .empty-state" },
+  // Judged sessions render as cards; a store with no judgements at all is a
+  // legitimate empty state rather than a missing source.
+  { hash: "#/outcomes", dataSelector: ".card, .empty-state" },
   { hash: "#/config", dataSelector: ".data-table tbody tr" },
   { hash: "#/history", dataSelector: ".card" },
   // Pacing needs an operator-installed hook, so the blocks table is the proof of data.

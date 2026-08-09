@@ -93,6 +93,7 @@ beforeEach(() => {
     workflowsDir: path.join(root, "workflows"),
     pacingLogPath: path.join(root, "pacing-log.jsonl"),
     fileHistoryDir: path.join(root, "file-history"),
+    usageDataDir: path.join(root, "usage-data"),
     agentsDir: path.join(root, "agents"),
     claudeMdPath: path.join(root, "CLAUDE.md"),
     indexPath,

@@ -28,6 +28,12 @@ const GUIDANCE: Record<string, { shows: string; configKey: string; how: string }
     configKey: "pacingLogPath",
     how: "Absent by default, and that is the normal state. Rate-limit figures exist only in the payload Claude Code hands its statusline command, so capturing them needs a hook you install yourself; the Usage page prints the command.",
   },
+  "usage data": {
+    shows:
+      "how your sessions turned out, and the friction they hit that never reached your log",
+    configKey: "usageDataDir",
+    how: "Written by Claude Code's /insights command in a single pass, and never refreshed afterwards. Run it to create the store; run it again to bring it up to date. Every figure here shows how many sessions it covers and when it was generated, because it is a snapshot rather than a feed.",
+  },
   "claude config": {
     shows: "per-skill usage counters, the MCP server list, and where each plugin came from",
     configKey: "claudeConfigPath",

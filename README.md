@@ -64,6 +64,18 @@ dashboard. Clone it, run it, and it reads what is already on your disk.
   "seventeen uses over six months" from "seventeen uses in one week last April"; the
   transcripts can. No verdict reads as "proven unused" when the truth is "no evidence
   found".
+- **Outcomes** - whether the work went anywhere, which is the one thing the
+  transcripts do not record. Claude Code's `/insights` command writes a per-session
+  judgement to disk; this reads it and never asks a model anything of its own. Those
+  verdicts are opinions, so they are shown as categories and never averaged into a
+  score, and every figure carries how many sessions it covers and when the store was
+  generated - it is written in one pass and never refreshed, so on this machine it
+  described 32 of 490 sessions.
+- **Detected, never logged** - friction that analysis found in a session which never
+  became an entry in your log, which is the loop leaking. The join is by time window,
+  not by meaning: your log's vocabulary and the analysis's are disjoint, so "logged"
+  claims only that you were capturing during that session, never that you captured
+  *that*.
 - **Command palette** - `Ctrl/Cmd+K` to jump to any pillar or search the whole
   corpus. Navigation keeps working when the index is cold.
 - **Live sessions strip** - which repositories have a Claude session open right

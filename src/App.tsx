@@ -48,6 +48,9 @@ const SessionsView = lazy(() =>
 const EngramView = lazy(() =>
   import("./views/EngramView").then((m) => ({ default: m.EngramView })),
 );
+const OutcomesView = lazy(() =>
+  import("./views/OutcomesView").then((m) => ({ default: m.OutcomesView })),
+);
 const FrictionView = lazy(() =>
   import("./views/FrictionView").then((m) => ({ default: m.FrictionView })),
 );
@@ -92,6 +95,7 @@ const ROUTES: Route[] = [
   { path: "/skills", label: "Skills + Launch", component: SkillsView, sourceKey: "skills" },
   { path: "/hooks", label: "Hook Health", component: HooksView, sourceKey: "hooks" },
   { path: "/tasks", label: "Unfinished Work", component: TasksView, sourceKey: "tasks" },
+  { path: "/outcomes", label: "Outcomes", component: OutcomesView, sourceKey: "usageData" },
   { path: "/history", label: "What You Asked For", component: HistoryView, sourceKey: "history" },
   { path: "/usage", label: "Usage + Pacing", component: UsageView, sourceKey: "blocks" },
   { path: "/graph", label: "Memory Graph", component: GraphView, sourceKey: "graph" },

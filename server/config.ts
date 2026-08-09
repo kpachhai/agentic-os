@@ -70,6 +70,12 @@ export type AppConfig = {
   pacingLogPath: string;
   /** Claude Code's own versioned copies of files it edited. */
   fileHistoryDir: string;
+  /**
+   * Where Claude Code's `/insights` command writes its per-session statistics
+   * and judgements. Absent until that command is run, and never refreshed
+   * afterwards, so every view over it reports coverage and an as-of date.
+   */
+  usageDataDir: string;
   /** Where agent definitions live; their identity text loads with every session. */
   agentsDir: string;
   /** The global instruction file, which loads in full on every session. */
@@ -168,6 +174,7 @@ function defaults(): AppConfig {
     workflowsDir: path.join(HOME, ".claude", "workflows"),
     pacingLogPath: path.join(HOME, ".claude", "pacing-log.jsonl"),
     fileHistoryDir: path.join(HOME, ".claude", "file-history"),
+    usageDataDir: path.join(HOME, ".claude", "usage-data"),
     agentsDir: path.join(HOME, ".claude", "agents"),
     claudeMdPath: path.join(HOME, ".claude", "CLAUDE.md"),
     // Under the install, and gitignored: a cache the operator can delete at any
@@ -230,6 +237,7 @@ export function loadConfig(configPath?: string): AppConfig {
   merged.workflowsDir = expandHome(merged.workflowsDir);
   merged.pacingLogPath = expandHome(merged.pacingLogPath);
   merged.fileHistoryDir = expandHome(merged.fileHistoryDir);
+  merged.usageDataDir = expandHome(merged.usageDataDir);
   merged.agentsDir = expandHome(merged.agentsDir);
   merged.claudeMdPath = expandHome(merged.claudeMdPath);
   merged.indexPath = expandHome(merged.indexPath);

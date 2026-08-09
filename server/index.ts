@@ -33,6 +33,8 @@ import {
 } from "./digest.js";
 import { getThought, listThoughts, listThoughtTypes } from "./engram.js";
 import { frictionAging, readFrictionLog } from "./friction.js";
+import { frictionGapReport } from "./friction-gap.js";
+import { outcomeForSession, outcomesReport } from "./outcomes.js";
 import { diffFileVersions, fileHistoryIndex, readFileVersion } from "./file-history.js";
 import { joinConfigured, mcpUsage } from "./mcp-usage.js";
 import { delegationReport } from "./delegation.js";
@@ -338,6 +340,40 @@ export function createApp(config: AppConfig) {
       config.frictionResolveWindowDays,
     );
     return c.json(frictionAging(entries));
+  });
+
+  // The gap between what the operator captured and what the analysis found is a
+  // comparison, so it needs both sources and reports 503 naming whichever is
+  // absent. It is its own route rather than a field on the timeline for the same
+  // reason aging is: it is computed over the whole log, not the filtered view.
+  app.get("/api/friction/gap", (c) =>
+    c.json(
+      frictionGapReport(
+        config.usageDataDir,
+        config.transcriptsDir,
+        config.frictionLogPath,
+        config.frictionResolveWindowDays,
+      ),
+    ),
+  );
+
+  // ---- Outcomes: whether the work went anywhere ----
+  // Every other pillar measures activity. This one reports a model's reading of
+  // how sessions turned out, over whichever sessions were judged the last time
+  // /insights ran, which is why coverage travels with every answer.
+  app.get("/api/outcomes", (c) =>
+    c.json(outcomesReport(config.usageDataDir, config.transcriptsDir)),
+  );
+
+  app.get("/api/outcomes/:sessionId", (c) => {
+    const found = outcomeForSession(
+      config.usageDataDir,
+      config.transcriptsDir,
+      c.req.param("sessionId"),
+    );
+    // A session nobody judged is absence, not an error: the store covers a
+    // fraction of the corpus by design.
+    return found ? c.json(found) : c.json({ judged: false }, 200);
   });
 
   // ---- Memory browser (the markdown vault is the source of truth) ----

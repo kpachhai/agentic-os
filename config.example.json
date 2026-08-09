@@ -8,6 +8,7 @@
   "claudeSettingsPath": "~/.claude/settings.json",
   "historyPath": "~/.claude/history.jsonl",
   "fileHistoryDir": "~/.claude/file-history",
+  "usageDataDir": "~/.claude/usage-data",
   "claudeMdPath": "~/.claude/CLAUDE.md",
   "agentsDir": "~/.claude/agents",
   "workflowsDir": "~/.claude/workflows",
