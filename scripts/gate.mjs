@@ -791,23 +791,70 @@ async function main() {
       // reads 2 and 3 also disagree, a live session is appending mid-check and this
       // run cannot prove anything either way - which is recorded as unknown, never
       // as a pass.
+      // Reads 2 and 3 agreeing proves the tree was quiet AFTER read 2, which is
+      // not the window that matters: the only pair that can catch
+      // cache-dependence is read 1 against read 2. A session appending in THAT
+      // gap re-keys the memo for one transcript and produces the failing
+      // signature exactly - cold different, both warm reads alike - with no
+      // cache bug present. Observed here: the check failed on /api/file-history
+      // while the operator's own session was writing, and three reads taken
+      // seconds later on a quiet tree were byte-identical. So the tree is
+      // fingerprinted around the whole trio, and movement makes the run unknown
+      // rather than failed.
+      const treeFingerprint = (dir) => {
+        let count = 0;
+        let bytes = 0;
+        let newest = 0;
+        const walk = (current) => {
+          let entries;
+          try {
+            entries = fs.readdirSync(current, { withFileTypes: true });
+          } catch {
+            return;
+          }
+          for (const entry of entries) {
+            const full = path.join(current, entry.name);
+            if (entry.isDirectory()) {
+              walk(full);
+            } else if (entry.name.endsWith(".jsonl")) {
+              try {
+                const stat = fs.statSync(full);
+                count += 1;
+                bytes += stat.size;
+                if (stat.mtimeMs > newest) newest = stat.mtimeMs;
+              } catch {
+                // Vanished mid-walk. The fingerprint changing is the point.
+              }
+            }
+          }
+        };
+        walk(dir);
+        return `${count}:${bytes}:${newest}`;
+      };
+
       const cacheDependent = [];
       const unstable = [];
+      const moved = [];
       let dateRolled = false;
       for (const [route] of readable) {
         // The delegation report zero-fills its monthly trend up to the read time,
         // so a run straddling UTC midnight produces two different and both-correct
         // payloads. Recorded as unknown rather than failed.
         const dayBefore = new Date().toISOString().slice(0, 10);
+        const treeBefore = treeFingerprint(config.transcriptsDir);
         const cold = JSON.stringify(await fetchJson(`${base}${route}`, 60000));
         const warm = JSON.stringify(await fetchJson(`${base}${route}`, 60000));
         const warmAgain = JSON.stringify(await fetchJson(`${base}${route}`, 60000));
+        const treeAfter = treeFingerprint(config.transcriptsDir);
         if (dayBefore !== new Date().toISOString().slice(0, 10)) {
           dateRolled = true;
           break;
         }
         if (cold === warm) continue;
-        if (warm === warmAgain) cacheDependent.push(route);
+        // Source movement is checked before the warm pair is believed, because a
+        // moving tree explains the same evidence and the cache does not have to.
+        if (treeBefore !== treeAfter) moved.push(route);
+        else if (warm === warmAgain) cacheDependent.push(route);
         else unstable.push(route);
       }
 
@@ -828,6 +875,14 @@ async function main() {
           "heavy reads are idempotent",
           "SKIP",
           "UTC date changed mid-check; the monthly zero-fill moved, so this run proves nothing",
+        );
+      } else if (moved.length) {
+        record(
+          13,
+          "heavy reads are idempotent",
+          "SKIP",
+          `the transcript tree changed mid-check on ${moved.join(", ")}; a re-keyed memo ` +
+            `explains the difference, so cache-dependence is untested rather than absent`,
         );
       } else if (unstable.length) {
         record(
