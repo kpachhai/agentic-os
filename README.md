@@ -83,6 +83,10 @@ dashboard. Clone it, run it, and it reads what is already on your disk.
   nine false positives, because a transcript records what command ran and never whose
   repository it ran in. Rules whose trigger is a keystroke or a hook are held in their
   own bucket rather than being called unused.
+- **Run diff** - two runs of the same task aligned on tool-call structure, showing
+  where they parted. The similarity figure always travels with the step counts behind
+  it and a short-run flag, because shape is cheap: of 70 sampled real pairs, four
+  matched perfectly and three of those were unrelated tasks.
 - **Command palette** - `Ctrl/Cmd+K` to jump to any pillar or search the whole
   corpus. Navigation keeps working when the index is cold.
 - **Live sessions strip** - which repositories have a Claude session open right

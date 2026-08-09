@@ -241,6 +241,11 @@ list instead - an empty pillar reads as "no data", which is a different claim.
   invocation means the command *starts* a segment: `echo "git commit"`, a grep for
   it, and a heredoc body that contains it are all mentions, and 15 real commands
   mentioned `git commit` without running it.
+- **Never render diff similarity alone.** It measures shape, and shape is
+  cheap: of 70 sampled real pairs, four scored a perfect match and three of those
+  were unrelated tasks, because pairs matching at 90%+ averaged 7 turns against
+  256 for the rest. The figure travels with `alignedSteps` of `comparedSteps` and
+  the `shortRun` flag, or it is not shown.
 - **Fail fast and loud.** No silent port hopping, no swallowed config errors, no
   empty catch blocks. A wrong config should crash, not degrade quietly.
 

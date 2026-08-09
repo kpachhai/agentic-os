@@ -1469,3 +1469,19 @@ button:disabled {
   font-size: 12.5px;
   line-height: 1.45;
 }
+
+/* The row where two aligned runs stopped agreeing. The whole diff exists to
+   draw the eye here, so it is the one row that gets a colour of its own. */
+.data-table tr.diverged td {
+  background: color-mix(in srgb, var(--bounded) 12%, transparent);
+  border-bottom-color: var(--bounded);
+}
+
+/* The two run pickers. A session label is long, so the control needs real width,
+   but left unbounded inside the flex toolbar it grows to the full page and reads
+   as a bar rather than a control. */
+.run-picker {
+  flex: 1 1 320px;
+  min-width: 0;
+  max-width: 460px;
+}

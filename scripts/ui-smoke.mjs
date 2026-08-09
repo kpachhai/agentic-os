@@ -33,6 +33,9 @@ const ROUTES = [
   // Judged sessions render as cards; a store with no judgements at all is a
   // legitimate empty state rather than a missing source.
   { hash: "#/outcomes", dataSelector: ".card, .empty-state" },
+  // The diff needs two runs chosen by hand, so its loaded state is the pair of
+  // pickers with nothing compared yet.
+  { hash: "#/diff", dataSelector: ".toolbar select, .empty-state" },
   { hash: "#/config", dataSelector: ".data-table tbody tr" },
   { hash: "#/history", dataSelector: ".card" },
   // Pacing needs an operator-installed hook, so the blocks table is the proof of data.

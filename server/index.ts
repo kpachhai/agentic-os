@@ -55,6 +55,7 @@ import {
 import { readWorkflowScript, workflowInventory } from "./workflows.js";
 import { LaunchManager } from "./launcher.js";
 import { listLiveSessions } from "./live.js";
+import { diffRuns } from "./diff.js";
 import { getSession, listSessions, sessionTotals } from "./sessions.js";
 import { listSkills } from "./skills.js";
 import { readSkillUsage } from "./skill-usage.js";
@@ -282,6 +283,26 @@ export function createApp(config: AppConfig) {
   // ---- Hook health, derived from records already in the transcripts ----
   // No collector, no listener, no settings change: a hook that has grown slow
   // taxes every turn, and until now the only way to notice was to feel it.
+  // Two runs of the same task, aligned. Both sides are addressed the way the
+  // detail route addresses one, because a session id alone is not enough to find
+  // a transcript.
+  app.get("/api/sessions/diff", (c) => {
+    const aProject = c.req.query("aProject") ?? "";
+    const aSession = c.req.query("aSession") ?? "";
+    const bProject = c.req.query("bProject") ?? "";
+    const bSession = c.req.query("bSession") ?? "";
+    if (!aProject || !aSession || !bProject || !bSession) {
+      return c.json({ error: "aProject, aSession, bProject and bSession are required" }, 400);
+    }
+    const a = getSession(config.transcriptsDir, aProject, aSession);
+    const b = getSession(config.transcriptsDir, bProject, bSession);
+    // A missing transcript is a bad reference rather than a missing source: the
+    // tree is present, this pair is not in it.
+    if (!a) return c.json({ error: `no such session: ${aProject}/${aSession}` }, 404);
+    if (!b) return c.json({ error: `no such session: ${bProject}/${bSession}` }, 404);
+    return c.json(diffRuns(a, b));
+  });
+
   app.get("/api/hooks", (c) => {
     const limitRaw = c.req.query("limit");
     return c.json(
