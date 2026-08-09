@@ -847,6 +847,162 @@ export function InstructionsView() {
       <p className="row-meta" style={{ marginTop: 8, lineHeight: 1.6 }}>
         {data.note}
       </p>
+
+      <TriggerCoverage />
     </div>
+  );
+}
+
+type TriggerCoverageRow = {
+  id: string;
+  topic: string;
+  kind: string;
+  match: string[];
+  bucket: "triggered" | "never-triggered" | "not-observable";
+  occurrences: number;
+  sessions: number;
+  lastSeenAt: string | null;
+  why?: string;
+};
+
+type TriggerCoverageReport = {
+  rows: TriggerCoverageRow[];
+  triggeredCount: number;
+  neverTriggeredCount: number;
+  notObservableCount: number;
+  sessionsScanned: number;
+  windowDays: number;
+  earliestRecordAt: string | null;
+};
+
+const WINDOWS = [30, 90, 180];
+
+/**
+ * Which rules have had their trigger occur, so an instruction audit starts from
+ * evidence. Occurrence only - there is no adherence figure here and there is not
+ * meant to be one, which the panel says out loud rather than leaving the reader
+ * to wonder where the compliance number went.
+ */
+function TriggerCoverage() {
+  const [report, setReport] = useState<TriggerCoverageReport | null>(null);
+  const [error, setError] = useState<unknown>(null);
+  const [days, setDays] = useState(90);
+
+  useEffect(() => {
+    setReport(null);
+    apiGet<TriggerCoverageReport>(`/api/instructions/triggers?days=${days}`)
+      .then(setReport)
+      .catch(setError);
+  }, [days]);
+
+  const badge = (bucket: TriggerCoverageRow["bucket"]) => {
+    if (bucket === "triggered") return "badge success";
+    if (bucket === "never-triggered") return "badge warn";
+    return "badge purple";
+  };
+
+  return (
+    <section className="gap-panel">
+      <h2 className="section-title">Did the situation ever come up</h2>
+      <p className="view-sub">
+        whether each rule's trigger occurred at all, so deletion candidates are
+        pre-marked instead of audited blind
+      </p>
+
+      {error != null && <FailureState error={error} />}
+      {report === null && error == null && (
+        <Skeleton kind="rows" count={3} label="scanning transcripts for triggers..." />
+      )}
+
+      {report && (
+        <>
+          <div className="stat-grid">
+            <div className="stat-tile">
+              <div className="num">{report.triggeredCount}</div>
+              <div className="row-meta">triggered</div>
+            </div>
+            <div className="stat-tile bounded">
+              <div className={`num${report.neverTriggeredCount > 0 ? " accent" : ""}`}>
+                {report.neverTriggeredCount}
+              </div>
+              <div className="row-meta">never triggered, deletion candidates</div>
+            </div>
+            <div className="stat-tile unknown">
+              <div className="num">{report.notObservableCount}</div>
+              <div className="row-meta">no transcript can say</div>
+            </div>
+            <div className="stat-tile">
+              <div className="num">{report.sessionsScanned}</div>
+              <div className="row-meta">sessions read</div>
+            </div>
+          </div>
+
+          <p className="row-meta" style={{ marginTop: -8, marginBottom: 12 }}>
+            No adherence percentage is reported, and that is deliberate. Detecting a
+            rule <em>violation</em> from a transcript was measured on this corpus and
+            produced nine hits of which nine were false positives, because a
+            transcript records what command ran and never whose repository it ran in.
+            Occurrence is the half the evidence supports. A never-triggered rule is a
+            candidate to delete, not a rule you broke.
+          </p>
+
+          <div className="toolbar">
+            {WINDOWS.map((window) => (
+              <button
+                key={window}
+                className={`chip${days === window ? " active" : ""}`}
+                onClick={() => setDays(window)}
+              >
+                {window}d
+              </button>
+            ))}
+            <span className="row-meta">
+              window of {report.windowDays} days
+              {report.earliestRecordAt
+                ? `, oldest record read ${report.earliestRecordAt.slice(0, 10)}`
+                : ""}
+            </span>
+          </div>
+          <RailLegend present={["measured", "bounded", "unknown"]} />
+
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>rule or topic</th>
+                <th>what would show it</th>
+                <th className="num-cell">times</th>
+                <th className="num-cell">sessions</th>
+                <th>last seen</th>
+              </tr>
+            </thead>
+            <tbody>
+              {report.rows.map((row) => (
+                <tr key={row.id}>
+                  <td>
+                    <span className={badge(row.bucket)}>
+                      {row.bucket.replace(/-/g, " ")}
+                    </span>{" "}
+                    {row.topic}
+                    {row.why && (
+                      <div className="row-meta" style={{ marginTop: 4 }}>
+                        {row.why}
+                      </div>
+                    )}
+                  </td>
+                  <td className="row-meta">
+                    {row.match.length > 0 ? row.match.join(", ") : "nothing on disk"}
+                  </td>
+                  <td className="num-cell">{row.bucket === "not-observable" ? "-" : row.occurrences}</td>
+                  <td className="num-cell">{row.bucket === "not-observable" ? "-" : row.sessions}</td>
+                  <td className="row-meta">
+                    {row.lastSeenAt ? row.lastSeenAt.slice(0, 10) : "-"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
+    </section>
   );
 }

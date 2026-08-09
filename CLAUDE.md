@@ -231,6 +231,16 @@ list instead - an empty pillar reads as "no data", which is a different claim.
   exists to be computed. The question asked is the weaker one the evidence
   supports: was anything logged while this session was running. "Logged" never
   claims the entry was about that friction.
+- **Occurrence is reportable; adherence is not.** Violation detection over
+  transcripts was measured and failed: 9 hits on 257 real `git commit`
+  invocations, all 9 false positives, because a transcript records what command
+  ran and never whose repository it ran in. So the trigger pillar reports whether
+  a rule's trigger occurred and emits no percentage. Rules whose trigger is a
+  keystroke, a hook, or a judgement about prose go in their own bucket rather
+  than being called never-triggered on evidence that cannot exist. Counting an
+  invocation means the command *starts* a segment: `echo "git commit"`, a grep for
+  it, and a heredoc body that contains it are all mentions, and 15 real commands
+  mentioned `git commit` without running it.
 - **Fail fast and loud.** No silent port hopping, no swallowed config errors, no
   empty catch blocks. A wrong config should crash, not degrade quietly.
 

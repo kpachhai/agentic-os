@@ -35,6 +35,7 @@ import { getThought, listThoughts, listThoughtTypes } from "./engram.js";
 import { frictionAging, readFrictionLog } from "./friction.js";
 import { frictionGapReport } from "./friction-gap.js";
 import { outcomeForSession, outcomesReport } from "./outcomes.js";
+import { triggerCoverage } from "./trigger-coverage.js";
 import { diffFileVersions, fileHistoryIndex, readFileVersion } from "./file-history.js";
 import { joinConfigured, mcpUsage } from "./mcp-usage.js";
 import { delegationReport } from "./delegation.js";
@@ -356,6 +357,19 @@ export function createApp(config: AppConfig) {
       ),
     ),
   );
+
+  // Which standing rules have had their trigger occur at all. Occurrence only:
+  // the route reports no adherence figure, because violation detection over
+  // transcripts was measured at nine hits and nine false positives.
+  app.get("/api/instructions/triggers", (c) => {
+    const daysRaw = c.req.query("days");
+    const days = daysRaw ? Number(daysRaw) : undefined;
+    return c.json(
+      triggerCoverage(config.transcriptsDir, {
+        windowDays: Number.isFinite(days) ? days : undefined,
+      }),
+    );
+  });
 
   // ---- Outcomes: whether the work went anywhere ----
   // Every other pillar measures activity. This one reports a model's reading of

@@ -76,6 +76,13 @@ dashboard. Clone it, run it, and it reads what is already on your disk.
   not by meaning: your log's vocabulary and the analysis's are disjoint, so "logged"
   claims only that you were capturing during that session, never that you captured
   *that*.
+- **Did the situation ever come up** - for each standing rule, whether its trigger
+  occurred at all in a window, so an instruction audit starts from evidence with
+  deletion candidates pre-marked. Occurrence only, and deliberately no adherence
+  figure: detecting a rule violation from a transcript was measured at nine hits and
+  nine false positives, because a transcript records what command ran and never whose
+  repository it ran in. Rules whose trigger is a keystroke or a hook are held in their
+  own bucket rather than being called unused.
 - **Command palette** - `Ctrl/Cmd+K` to jump to any pillar or search the whole
   corpus. Navigation keeps working when the index is cold.
 - **Live sessions strip** - which repositories have a Claude session open right
