@@ -669,6 +669,43 @@ describe("scanCached", () => {
     clearScanCache();
   });
 
+  it("does not let one extractor's sweep evict another's entries", () => {
+    // The bound is per extractor for a measured reason. Shared and oldest-first,
+    // any reader sweeping more files than the bound evicted its own earliest
+    // entries before finishing a pass: the skill-attribution reader walks 1,111
+    // files and answered in 14.4s cold and 15.6s warm, never once hitting. A
+    // second full-corpus reader then evicted the first.
+    const file = statOf(filePath);
+    let readsA = 0;
+    let readsB = 0;
+
+    scanCached(file, "extractor-a", () => {
+      readsA++;
+      return "a";
+    });
+    // A different extractor sweeping the same file must not displace A.
+    scanCached(file, "extractor-b", () => {
+      readsB++;
+      return "b";
+    });
+    const againA = scanCached(file, "extractor-a", () => {
+      readsA++;
+      return "a";
+    });
+
+    expect(readsA).toBe(1);
+    expect(readsB).toBe(1);
+    expect(againA).toBe("a");
+  });
+
+  it("keeps each extractor's value distinct for the same file", () => {
+    const file = statOf(filePath);
+    expect(scanCached(file, "counts", () => 7)).toBe(7);
+    expect(scanCached(file, "names", () => ["x"])).toEqual(["x"]);
+    // Re-reading either must not return the other's value.
+    expect(scanCached(file, "counts", () => 99)).toBe(7);
+  });
+
   it("reads the file once and serves the same value after", () => {
     let reads = 0;
     const extract = (target: string): number => {

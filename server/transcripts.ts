@@ -531,21 +531,29 @@ export function listSubagentTranscriptFiles(
 }
 
 /**
- * How many per-file scan results to keep in memory, across every extractor
- * sharing this cache. Bounded because a long-running server would otherwise grow
- * without limit as transcripts are appended to: every append produces a new key,
- * so the old entry becomes dead weight rather than being replaced.
+ * How many per-file scan results one extractor may keep.
+ *
+ * PER EXTRACTOR, not shared, and that is the whole point. A single global bound
+ * looks tidier and is worse than useless: eviction is oldest-first, so any
+ * extractor sweeping more files than the bound evicts its own earliest entries
+ * before it finishes one pass, and every later call is fully cold. Measured
+ * before this was split: the skill-attribution reader sweeps 1,111 files - the
+ * mainline transcripts plus the subagent ones - against a 1,000-entry global
+ * bound, and answered in 14.4s cold and 15.6s warm, i.e. the cache never once
+ * hit. A second full-corpus reader made it worse by evicting the first.
+ *
+ * So the bound has to exceed the largest corpus any one extractor walks, or that
+ * extractor is uncached by construction. It still bounds memory: a long-running
+ * server would otherwise grow without limit, because appending to a transcript
+ * changes its identity and leaves the old entry as dead weight.
  */
-const MAX_CACHED_FILES = 1000;
+const MAX_CACHED_FILES_PER_EXTRACTOR = 2500;
 
 /**
- * Per-file scan results, keyed on the file's identity rather than its path.
- *
- * One map shared by every extractor, with the extractor's id in the key, so the
- * bound above is a bound on the whole server rather than one per reader. It holds
- * nothing the files do not; losing it costs a re-read of the tree.
+ * Per-file scan results, keyed on the file's identity rather than its path, and
+ * grouped by extractor so one reader's sweep cannot evict another's.
  */
-const scanCache = new Map<string, unknown>();
+const scanCache = new Map<string, Map<string, unknown>>();
 
 /**
  * Read one transcript through a memo on the file's identity, or null when the
@@ -584,8 +592,13 @@ export function scanCached<T>(
   extractorId: string,
   extract: (filePath: string) => T,
 ): T | null {
-  const key = `${file.filePath}:${file.mtimeMs}:${file.sizeBytes}:${extractorId}`;
-  const cached = scanCache.get(key);
+  const key = `${file.filePath}:${file.mtimeMs}:${file.sizeBytes}`;
+  let forExtractor = scanCache.get(extractorId);
+  if (forExtractor === undefined) {
+    forExtractor = new Map<string, unknown>();
+    scanCache.set(extractorId, forExtractor);
+  }
+  const cached = forExtractor.get(key);
   if (cached !== undefined) return cached as T;
 
   let scanned: T;
@@ -596,12 +609,12 @@ export function scanCached<T>(
     throw err;
   }
 
-  scanCache.set(key, scanned);
-  while (scanCache.size > MAX_CACHED_FILES) {
+  forExtractor.set(key, scanned);
+  while (forExtractor.size > MAX_CACHED_FILES_PER_EXTRACTOR) {
     // Map iterates in insertion order, so the first key is the oldest.
-    const oldest = scanCache.keys().next();
+    const oldest = forExtractor.keys().next();
     if (oldest.done) break;
-    scanCache.delete(oldest.value);
+    forExtractor.delete(oldest.value);
   }
   return scanned;
 }
