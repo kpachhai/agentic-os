@@ -44,6 +44,18 @@ export type SessionSummary = {
   assistantTurns: number;
   models: NamedCount[];
   tokens: TokenTotals;
+  /**
+   * Tokens split by the model that spent them, which is what a cost figure needs:
+   * rates differ per model, so a session total cannot be priced without knowing
+   * how it divides. Kept beside the aggregate rather than replacing it.
+   */
+  tokensByModel: Array<{ model: string; tokens: TokenTotals }>;
+  /**
+   * Turns belonging to a subagent rather than the mainline conversation. Counted
+   * separately because the mainline figures deliberately exclude them, and two
+   * runs that delegated differently are otherwise indistinguishable.
+   */
+  sidechainTurns: number;
   toolCalls: NamedCount[];
   skills: NamedCount[];
   mcpServers: NamedCount[];
@@ -318,6 +330,8 @@ type Accumulator = {
   userTurns: number;
   assistantTurns: number;
   models: Map<string, number>;
+  tokensByModel: Map<string, TokenTotals>;
+  sidechainTurns: number;
   tools: Map<string, number>;
   skills: Map<string, number>;
   mcpServers: Map<string, number>;
@@ -343,6 +357,8 @@ function newAccumulator(): Accumulator {
     userTurns: 0,
     assistantTurns: 0,
     models: new Map(),
+    tokensByModel: new Map(),
+    sidechainTurns: 0,
     tools: new Map(),
     skills: new Map(),
     mcpServers: new Map(),
@@ -466,6 +482,7 @@ function absorb(
   if (recordType === "user") {
     accumulator.messageCount++;
     accumulator.userTurns++;
+    if (isSidechain) accumulator.sidechainTurns++;
     // A meta record is context the harness injected and a sidechain record
     // belongs to a subagent; neither is something the operator typed, so
     // neither should become the session's name. An envelope-only record leaves
@@ -480,10 +497,22 @@ function absorb(
   } else if (recordType === "assistant") {
     accumulator.messageCount++;
     accumulator.assistantTurns++;
+    if (isSidechain) accumulator.sidechainTurns++;
     if (message) {
-      tally(accumulator.models, str(message, "model"));
+      const model = str(message, "model");
+      tally(accumulator.models, model);
       tokens = usageTokens(message);
-      if (tokens) addTokens(accumulator.tokens, tokens);
+      if (tokens) {
+        addTokens(accumulator.tokens, tokens);
+        if (model) {
+          let byModel = accumulator.tokensByModel.get(model);
+          if (!byModel) {
+            byModel = emptyTokens();
+            accumulator.tokensByModel.set(model, byModel);
+          }
+          addTokens(byModel, tokens);
+        }
+      }
     }
     for (const toolName of content.toolUses) tally(accumulator.tools, toolName);
     tally(accumulator.skills, str(record, "attributionSkill"));
@@ -558,6 +587,10 @@ function summarize(
     assistantTurns: accumulator.assistantTurns,
     models: toNamedCounts(accumulator.models),
     tokens: accumulator.tokens,
+    tokensByModel: [...accumulator.tokensByModel.entries()]
+      .map(([model, tokens]) => ({ model, tokens }))
+      .sort((a, b) => a.model.localeCompare(b.model)),
+    sidechainTurns: accumulator.sidechainTurns,
     toolCalls: toNamedCounts(accumulator.tools),
     skills: toNamedCounts(accumulator.skills),
     mcpServers: toNamedCounts(accumulator.mcpServers),

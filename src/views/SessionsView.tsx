@@ -107,10 +107,34 @@ function titleProvenance(source: SessionSummary["titleSource"]): string {
   return "no title recorded";
 }
 
+/**
+ * What Claude Code's `/insights` command concluded about this session, when it
+ * ran at all. A judgement rather than a measurement, so it sits apart from the
+ * counted figures and says whose opinion it is.
+ */
+type OutcomeJudgement = {
+  outcome: string;
+  claudeHelpfulness: string;
+  sessionType: string;
+  primarySuccess: string;
+  briefSummary: string;
+  frictionCount: number;
+  /** Present on the not-judged response, which is the common case. */
+  judged?: false;
+};
+
+function outcomeBadge(outcome: string): string {
+  if (outcome === "fully_achieved") return "badge success";
+  if (outcome === "mostly_achieved") return "badge info";
+  if (outcome === "not_achieved") return "badge warn";
+  return "badge purple";
+}
+
 export function SessionsView() {
   const [sessions, setSessions] = useState<SessionSummary[] | null>(null);
   const [totals, setTotals] = useState<Totals | null>(null);
   const [selected, setSelected] = useState<SessionDetail | null>(null);
+  const [outcome, setOutcome] = useState<OutcomeJudgement | null>(null);
   const [query, setQuery] = useState("");
   const [error, setError] = useState<unknown>(null);
 
@@ -148,11 +172,18 @@ export function SessionsView() {
 
   const open = (session: SessionSummary): void => {
     setSelected(null);
+    setOutcome(null);
     apiGet<SessionDetail>(
       `/api/sessions/${encodeURIComponent(session.projectDir)}/${encodeURIComponent(session.sessionId)}`,
     )
       .then(setSelected)
       .catch(setError);
+    // A judgement is a bonus, not part of the session. Most sessions have none,
+    // and the store may not exist at all, so a failure here leaves the detail
+    // panel exactly as it was rather than reaching the error path.
+    apiGet<OutcomeJudgement>(`/api/outcomes/${encodeURIComponent(session.sessionId)}`)
+      .then((found) => setOutcome("judged" in found ? null : found))
+      .catch(() => setOutcome(null));
   };
 
   // The heading stays even when the source is absent: a bare panel leaves the
@@ -328,6 +359,27 @@ export function SessionsView() {
               <div className="row-meta">
                 {selected.cwd} &middot; Claude Code {selected.version || "unknown"}
               </div>
+
+              {outcome && (
+                <div style={{ display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap", marginTop: 10 }}>
+                  <span className={outcomeBadge(outcome.outcome)}>
+                    {outcome.outcome.replace(/_/g, " ")}
+                  </span>
+                  <span className="badge info">
+                    {outcome.claudeHelpfulness.replace(/_/g, " ")}
+                  </span>
+                  {outcome.frictionCount > 0 && (
+                    <span className="badge warn">{outcome.frictionCount} friction</span>
+                  )}
+                  {/* Whose claim this is, on the same line as the claim. Every
+                      other figure in this panel was counted off the transcript;
+                      this one is a model's reading of it. */}
+                  <span className="row-meta">judged by /insights, not measured here</span>
+                </div>
+              )}
+              {outcome?.briefSummary && (
+                <p style={{ margin: "8px 0 0" }}>{outcome.briefSummary}</p>
+              )}
 
               <div className="stat-grid" style={{ marginTop: 14 }}>
                 <div className="stat-tile">

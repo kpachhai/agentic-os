@@ -47,6 +47,8 @@ function run(sessionId: string, steps: string[][]): SessionDetail {
     assistantTurns: timeline.length,
     models: [],
     tokens: { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 },
+    tokensByModel: [],
+    sidechainTurns: 0,
     toolCalls: [],
     skills: [],
     mcpServers: [],
@@ -176,6 +178,54 @@ describe("diffRuns", () => {
     expect(files.both).toEqual(["/tmp/shared.ts"]);
     expect(files.onlyA).toEqual(["/tmp/only-a.ts"]);
     expect(files.onlyB).toEqual(["/tmp/only-b.ts"]);
+  });
+
+  it("prices each run from its own model split", () => {
+    const a = run("a", [["Read"]]);
+    const b = run("b", [["Read"]]);
+    a.tokensByModel = [
+      {
+        model: "claude-opus-4-5",
+        tokens: { input: 1000, output: 1000, cacheRead: 0, cacheCreation: 0 },
+      },
+    ];
+    b.tokensByModel = [
+      {
+        model: "claude-opus-4-5",
+        tokens: { input: 2000, output: 2000, cacheRead: 0, cacheCreation: 0 },
+      },
+    ];
+
+    const { costUsd } = diffRuns(a, b).deltas;
+    expect(costUsd.a).not.toBeNull();
+    expect(costUsd.b).not.toBeNull();
+    expect(costUsd.b!).toBeGreaterThan(costUsd.a!);
+  });
+
+  it("refuses a cost rather than reporting a partial one", () => {
+    // An unpriced model would otherwise be silently omitted, and a total missing
+    // one model reads as the whole figure.
+    const a = run("a", [["Read"]]);
+    const b = run("b", [["Read"]]);
+    a.tokensByModel = [
+      {
+        model: "some-unreleased-model",
+        tokens: { input: 10, output: 10, cacheRead: 0, cacheCreation: 0 },
+      },
+    ];
+
+    expect(diffRuns(a, b).deltas.costUsd.a).toBeNull();
+    // No model split at all is also "not available", never zero.
+    expect(diffRuns(a, b).deltas.costUsd.b).toBeNull();
+  });
+
+  it("deltas delegated turns, which the alignment leaves out", () => {
+    const a = run("a", [["Read"]]);
+    const b = run("b", [["Read"]]);
+    a.sidechainTurns = 0;
+    b.sidechainTurns = 42;
+
+    expect(diffRuns(a, b).deltas.sidechainTurns).toEqual({ a: 0, b: 42 });
   });
 
   it("calls two empty runs identical without dividing by zero", () => {

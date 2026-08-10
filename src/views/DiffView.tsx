@@ -54,11 +54,18 @@ type RunDiff = {
     durationMs: { a: number; b: number };
     messageCount: { a: number; b: number };
     tokens: { a: TokenTotals; b: TokenTotals };
+    costUsd: { a: number | null; b: number | null };
     tools: Array<{ name: string; a: number; b: number }>;
     files: { onlyA: string[]; onlyB: string[]; both: string[] };
+    sidechainTurns: { a: number; b: number };
   };
   truncated: boolean;
 };
+
+/** A dash, never a zero, when the price table could not cover a run. */
+function money(usd: number | null): string {
+  return usd === null ? "-" : `$${usd.toFixed(2)}`;
+}
 
 function minutes(ms: number): string {
   if (ms <= 0) return "-";
@@ -191,6 +198,18 @@ export function DiffView() {
                 {diff.deltas.messageCount.a} / {diff.deltas.messageCount.b}
               </div>
               <div className="row-meta">messages, A / B</div>
+            </div>
+            {/* A dash rather than a zero when a run used a model the vendored
+                table cannot price: absent is not free. */}
+            <div className="stat-tile derived">
+              <div className="num">{money(diff.deltas.costUsd.a)} / {money(diff.deltas.costUsd.b)}</div>
+              <div className="row-meta">cost, A / B</div>
+            </div>
+            <div className="stat-tile derived">
+              <div className="num">
+                {diff.deltas.sidechainTurns.a} / {diff.deltas.sidechainTurns.b}
+              </div>
+              <div className="row-meta">delegated turns, A / B</div>
             </div>
           </div>
 

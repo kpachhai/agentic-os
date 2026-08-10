@@ -1,3 +1,4 @@
+import { totalCost } from "./pricing.js";
 import { operatorProse } from "./sessions.js";
 import type { SessionDetail, TimelineEntry, TokenTotals } from "./sessions.js";
 
@@ -75,8 +76,16 @@ export type RunDiff = {
     durationMs: { a: number; b: number };
     messageCount: { a: number; b: number };
     tokens: { a: TokenTotals; b: TokenTotals };
+    /**
+     * Null when a run used a model the vendored price table does not carry. A
+     * partial cost is worse than none: it reads as the whole figure while
+     * silently omitting a model.
+     */
+    costUsd: { a: number | null; b: number | null };
     tools: ToolDelta[];
     files: { onlyA: string[]; onlyB: string[]; both: string[] };
+    /** Delegated turns, which the mainline alignment deliberately excludes. */
+    sidechainTurns: { a: number; b: number };
   };
   /** Either run exceeded the alignment cap and was cut short. */
   truncated: boolean;
@@ -198,6 +207,18 @@ function refOf(detail: SessionDetail): RunRef {
   };
 }
 
+/**
+ * What one run cost, or null when any model it used is unpriced. The price table
+ * is vendored with an as-of date, so an unknown model means the answer is not
+ * available rather than smaller than it should be.
+ */
+function runCostUsd(detail: SessionDetail): number | null {
+  if (detail.tokensByModel.length === 0) return null;
+  const byModel = new Map(detail.tokensByModel.map((row) => [row.model, row.tokens]));
+  const cost = totalCost(byModel);
+  return cost.unpricedModels.length > 0 ? null : cost.totalUsd;
+}
+
 function runDurationMs(detail: SessionDetail): number {
   const start = Date.parse(detail.startedAt);
   const end = Date.parse(detail.endedAt);
@@ -237,12 +258,14 @@ export function diffRuns(a: SessionDetail, b: SessionDetail): RunDiff {
       durationMs: { a: runDurationMs(a), b: runDurationMs(b) },
       messageCount: { a: a.messageCount, b: b.messageCount },
       tokens: { a: a.tokens, b: b.tokens },
+      costUsd: { a: runCostUsd(a), b: runCostUsd(b) },
       tools,
       files: {
         onlyA: [...filesA].filter((path) => !filesB.has(path)).sort(),
         onlyB: [...filesB].filter((path) => !filesA.has(path)).sort(),
         both: [...filesA].filter((path) => filesB.has(path)).sort(),
       },
+      sidechainTurns: { a: a.sidechainTurns, b: b.sidechainTurns },
     },
     truncated: stepsA.truncated || stepsB.truncated,
   };
