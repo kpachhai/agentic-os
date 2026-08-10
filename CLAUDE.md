@@ -246,6 +246,23 @@ list instead - an empty pillar reads as "no data", which is a different claim.
   were unrelated tasks, because pairs matching at 90%+ averaged 7 turns against
   256 for the rest. The figure travels with `alignedSteps` of `comparedSteps` and
   the `shortRun` flag, or it is not shown.
+- **The disk pillar measures; it must never interpret.** Byte counts come from
+  `stat` and nothing else - no file is opened, so this is the one reader whose
+  figures are measured rather than derived. Symlinks are counted as the link and
+  never followed: a skill linked out of another checkout would otherwise be billed
+  to this tree, and a link pointing upward would make the walk unbounded. Anything
+  no declared category claims is reported as `otherBytes` and still counted in the
+  total, because categories that quietly fail to add up to the install are worse
+  than no categories.
+- **The per-file scan memo is bounded per extractor, never globally.** A shared
+  oldest-first bound is worse than no cache for its largest consumer: any reader
+  sweeping more files than the bound evicts its own earliest entries before
+  finishing one pass. Measured - the skill-attribution reader walks 1,111 files
+  (mainline plus subagent) against what was a 1,000-entry global bound and
+  answered in 14.4s cold and 15.6s warm, meaning it never hit once; a second
+  full-corpus reader then evicted the first. Split per extractor it answers in
+  0.07s warm. Any new bound must exceed the largest corpus a single extractor
+  walks, or that extractor is uncached by construction.
 - **Fail fast and loud.** No silent port hopping, no swallowed config errors, no
   empty catch blocks. A wrong config should crash, not degrade quietly.
 

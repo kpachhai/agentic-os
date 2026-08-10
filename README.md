@@ -87,6 +87,11 @@ dashboard. Clone it, run it, and it reads what is already on your disk.
   where they parted. The similarity figure always travels with the step counts behind
   it and a short-run flag, because shape is cheap: of 70 sampled real pairs, four
   matched perfectly and three of those were unrelated tasks.
+- **Disk footprint** - what the install is keeping, by category, with the retention
+  setting that bounds the largest one shown beside it. Pure stat calls: nothing is
+  opened or parsed, so the byte counts are measured rather than estimated.
+  Symlinks are counted as the link and never followed, so a skill linked in from
+  another checkout is not billed to this tree.
 - **Command palette** - `Ctrl/Cmd+K` to jump to any pillar or search the whole
   corpus. Navigation keeps working when the index is cold.
 - **Live sessions strip** - which repositories have a Claude session open right
