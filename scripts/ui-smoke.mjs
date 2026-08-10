@@ -20,6 +20,17 @@ if (!base) {
 }
 const absent = new Set((process.argv[3] ?? "").split(",").filter(Boolean));
 
+/**
+ * How long to wait for a route's data to appear.
+ *
+ * Configurable because the budget is about the code and the machine is not: the
+ * slowest route reads 1,111 transcripts on its first request, which is about 7s
+ * on an idle box and past any fixed budget on a loaded one. The caller widens
+ * this when the machine is oversubscribed and says so in its output, rather than
+ * letting a true statement about the load read as a failure of the page.
+ */
+const SELECTOR_TIMEOUT_MS = Number(process.env.UI_SMOKE_TIMEOUT_MS ?? 15000);
+
 // Selector = proof of REAL data on screen. Empty states use .empty-state and the
 // unconfigured state uses .not-configured, so neither can satisfy these.
 const ROUTES = [
@@ -83,11 +94,11 @@ for (const route of ROUTES) {
   try {
     await page.goto(`${base}/${route.hash}`, {
       waitUntil: "domcontentloaded",
-      timeout: 15000,
+      timeout: SELECTOR_TIMEOUT_MS,
     });
 
     const wanted = expectUnconfigured ? ".not-configured" : route.dataSelector;
-    await page.waitForSelector(wanted, { timeout: 15000 });
+    await page.waitForSelector(wanted, { timeout: SELECTOR_TIMEOUT_MS });
 
     const state = await page.evaluate(() => ({
       errorPanels: document.querySelectorAll(".error-state").length,

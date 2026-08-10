@@ -114,6 +114,15 @@ const SOURCES = [
       "Written by Claude Code's /insights command, in one pass, and never refreshed afterwards. Absent means you have not run it; stale means you have not run it lately, which is why every view over it shows its coverage and the date it was generated.",
   },
   {
+    key: "claudeHome",
+    label: "Claude Code home",
+    fallback: "~/.claude",
+    kind: "dir",
+    tier: "universal",
+    powers: "the disk-footprint pillar: what this install keeps, by category",
+    remedy: "Created by Claude Code on first run. Its absence would mean no install to read.",
+  },
+  {
     key: "claudeMdPath",
     label: "global instruction file",
     fallback: "~/.claude/CLAUDE.md",

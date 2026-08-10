@@ -703,19 +703,38 @@ async function main() {
     .map(([, hash]) => hash);
   const uiArgs = ["scripts/ui-smoke.mjs", base];
   if (absentRoutes.length) uiArgs.push(absentRoutes.join(","));
-  const ui = run("node", uiArgs, { timeoutMs: 180000 });
+  // The slowest route reads 1,111 transcripts on its first request. On an idle
+  // machine that is about 7s and well inside the budget; oversubscribed it is
+  // not, and a timeout there measures the box rather than the page. Widened
+  // deliberately and reported, the same way the other wall-clock budgets are.
+  const uiTimeoutMs = OVERSUBSCRIBED ? 45000 : 15000;
+  const ui = run("node", uiArgs, {
+    timeoutMs: 180000,
+    env: { UI_SMOKE_TIMEOUT_MS: String(uiTimeoutMs) },
+  });
   console.log(ui.out.trim().split("\n").map((l) => `      ${l}`).join("\n"));
+  // Counted from what the smoke actually reported rather than written into this
+  // string. The hardcoded number said 20 while the script walked 23, which is
+  // the same class of defect the pillars are held to: a count that drifted from
+  // the thing it counts, and nothing failed to say so.
+  const routesWalked = (ui.out.match(/^ui-smoke (?:PASS|FAIL) /gm) ?? []).length;
+  const uiLabel = `UI render smoke (playwright, ${routesWalked} routes)`;
   if (!ui.ok) {
-    record(11, "UI render smoke (playwright, 20 routes)", "FAIL", ui.out.slice(-600));
+    record(11, uiLabel, "FAIL", ui.out.slice(-600));
     return bail(summarize());
   }
   record(
     11,
-    "UI render smoke (playwright, 20 routes)",
+    uiLabel,
     "PASS",
-    absentRoutes.length
-      ? `not-configured panel asserted for: ${absentRoutes.join(", ")}`
-      : "",
+    [
+      absentRoutes.length
+        ? `not-configured panel asserted for: ${absentRoutes.join(", ")}`
+        : "",
+      OVERSUBSCRIBED ? `${loadNote}; selector budget widened to ${uiTimeoutMs}ms` : "",
+    ]
+      .filter(Boolean)
+      .join(", "),
   );
 
   // ---- 12: localhost-only bind ----
