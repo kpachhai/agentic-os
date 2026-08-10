@@ -51,6 +51,9 @@ const EngramView = lazy(() =>
 const OutcomesView = lazy(() =>
   import("./views/OutcomesView").then((m) => ({ default: m.OutcomesView })),
 );
+const DiskView = lazy(() =>
+  import("./views/DiskView").then((m) => ({ default: m.DiskView })),
+);
 const DiffView = lazy(() =>
   import("./views/DiffView").then((m) => ({ default: m.DiffView })),
 );
@@ -100,6 +103,7 @@ const ROUTES: Route[] = [
   { path: "/tasks", label: "Unfinished Work", component: TasksView, sourceKey: "tasks" },
   { path: "/outcomes", label: "Outcomes", component: OutcomesView, sourceKey: "usageData" },
   { path: "/diff", label: "Run Diff", component: DiffView, sourceKey: "sessions" },
+  { path: "/disk", label: "Disk Footprint", component: DiskView, sourceKey: "disk" },
   { path: "/history", label: "What You Asked For", component: HistoryView, sourceKey: "history" },
   { path: "/usage", label: "Usage + Pacing", component: UsageView, sourceKey: "blocks" },
   { path: "/graph", label: "Memory Graph", component: GraphView, sourceKey: "graph" },

@@ -33,6 +33,7 @@ import {
 } from "./digest.js";
 import { getThought, listThoughts, listThoughtTypes } from "./engram.js";
 import { frictionAging, readFrictionLog } from "./friction.js";
+import { diskReport } from "./disk.js";
 import { frictionGapReport } from "./friction-gap.js";
 import { outcomeForSession, outcomesReport } from "./outcomes.js";
 import { triggerCoverage } from "./trigger-coverage.js";
@@ -391,6 +392,13 @@ export function createApp(config: AppConfig) {
       }),
     );
   });
+
+  // What the install is keeping, by category. Byte counts are measured rather
+  // than derived, and the retention setting rides along because it is what says
+  // whether the transcript tree is bounded at all.
+  app.get("/api/disk", (c) =>
+    c.json(diskReport(config.claudeHome, config.claudeSettingsPath)),
+  );
 
   // ---- Outcomes: whether the work went anywhere ----
   // Every other pillar measures activity. This one reports a model's reading of

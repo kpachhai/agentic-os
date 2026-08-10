@@ -166,6 +166,7 @@ function loadGateConfig() {
     workflowsDir: expandHome(raw.workflowsDir ?? "~/.claude/workflows"),
     fileHistoryDir: expandHome(raw.fileHistoryDir ?? "~/.claude/file-history"),
     usageDataDir: expandHome(raw.usageDataDir ?? "~/.claude/usage-data"),
+    claudeHome: expandHome(raw.claudeHome ?? "~/.claude"),
     claudeMdPath: expandHome(raw.claudeMdPath ?? "~/.claude/CLAUDE.md"),
     indexPath: expandHome(raw.indexPath ?? path.join(ROOT, ".cache", "index.db")),
   };
@@ -221,6 +222,7 @@ async function main() {
     // Outcomes and the friction gap both read the /insights store; the gap also
     // needs the friction log, since it is a comparison between the two.
     usageData: fs.existsSync(config.usageDataDir),
+    disk: fs.existsSync(config.claudeHome),
     frictionGap: fs.existsSync(config.usageDataDir) && fs.existsSync(config.frictionLogPath),
   };
   console.log("[gate] precondition probe:", JSON.stringify(sources));
@@ -687,6 +689,7 @@ async function main() {
     ["workflows", "#/workflows"],
     ["fileHistory", "#/file-history"],
     ["usageData", "#/outcomes"],
+    ["disk", "#/disk"],
     ["mcpUsage", "#/mcp-usage"],
     ["delegation", "#/delegation"],
     ["instructions", "#/instructions"],

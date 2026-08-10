@@ -50,6 +50,7 @@ function probes(config: AppConfig): Probe[] {
     { key: "instructions", label: "always-loaded instructions", tier: "universal", kind: "file", paths: [config.claudeMdPath] },
     { key: "skillTrend", label: "skill attribution history", tier: "universal", kind: "dir", paths: [config.transcriptsDir] },
     { key: "usageData", label: "insights usage data", tier: "universal", kind: "dir", paths: [config.usageDataDir] },
+    { key: "disk", label: "Claude Code home", tier: "universal", kind: "dir", paths: [config.claudeHome] },
     { key: "engram", label: "memory vault", tier: "personal", kind: "dir", paths: [config.engramVaultPath] },
     { key: "graph", label: "memory link graph", tier: "universal", kind: "dir", paths: [config.transcriptsDir] },
     { key: "friction", label: "friction log", tier: "personal", kind: "file", paths: [config.frictionLogPath] },

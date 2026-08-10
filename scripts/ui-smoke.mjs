@@ -36,6 +36,7 @@ const ROUTES = [
   // The diff needs two runs chosen by hand, so its loaded state is the pair of
   // pickers with nothing compared yet.
   { hash: "#/diff", dataSelector: ".toolbar select, .empty-state" },
+  { hash: "#/disk", dataSelector: ".data-table tbody tr" },
   { hash: "#/config", dataSelector: ".data-table tbody tr" },
   { hash: "#/history", dataSelector: ".card" },
   // Pacing needs an operator-installed hook, so the blocks table is the proof of data.

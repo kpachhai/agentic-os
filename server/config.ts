@@ -71,6 +71,13 @@ export type AppConfig = {
   /** Claude Code's own versioned copies of files it edited. */
   fileHistoryDir: string;
   /**
+   * The Claude Code home directory itself. Only the disk pillar needs it: every
+   * other reader names the exact file or subdirectory it wants, which is the
+   * safer habit, but "how much room is this install taking" is a question about
+   * the whole tree.
+   */
+  claudeHome: string;
+  /**
    * Where Claude Code's `/insights` command writes its per-session statistics
    * and judgements. Absent until that command is run, and never refreshed
    * afterwards, so every view over it reports coverage and an as-of date.
@@ -174,6 +181,7 @@ function defaults(): AppConfig {
     workflowsDir: path.join(HOME, ".claude", "workflows"),
     pacingLogPath: path.join(HOME, ".claude", "pacing-log.jsonl"),
     fileHistoryDir: path.join(HOME, ".claude", "file-history"),
+    claudeHome: path.join(HOME, ".claude"),
     usageDataDir: path.join(HOME, ".claude", "usage-data"),
     agentsDir: path.join(HOME, ".claude", "agents"),
     claudeMdPath: path.join(HOME, ".claude", "CLAUDE.md"),
@@ -237,6 +245,7 @@ export function loadConfig(configPath?: string): AppConfig {
   merged.workflowsDir = expandHome(merged.workflowsDir);
   merged.pacingLogPath = expandHome(merged.pacingLogPath);
   merged.fileHistoryDir = expandHome(merged.fileHistoryDir);
+  merged.claudeHome = expandHome(merged.claudeHome);
   merged.usageDataDir = expandHome(merged.usageDataDir);
   merged.agentsDir = expandHome(merged.agentsDir);
   merged.claudeMdPath = expandHome(merged.claudeMdPath);
