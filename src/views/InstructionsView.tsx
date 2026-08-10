@@ -858,6 +858,7 @@ type TriggerCoverageRow = {
   topic: string;
   kind: string;
   match: string[];
+  extensions: string[];
   bucket: "triggered" | "never-triggered" | "not-observable";
   occurrences: number;
   sessions: number;
@@ -990,7 +991,7 @@ function TriggerCoverage() {
                     )}
                   </td>
                   <td className="row-meta">
-                    {row.match.length > 0 ? row.match.join(", ") : "nothing on disk"}
+                    {[...row.match, ...row.extensions].join(", ") || "nothing on disk"}
                   </td>
                   <td className="num-cell">{row.bucket === "not-observable" ? "-" : row.occurrences}</td>
                   <td className="num-cell">{row.bucket === "not-observable" ? "-" : row.sessions}</td>

@@ -130,6 +130,60 @@ describe("triggerCoverage", () => {
     expect(rowFor("rust").bucket).toBe("never-triggered");
   });
 
+  it("counts editing a file as the language rule's trigger", () => {
+    // A language convention is not only observable through its toolchain. On the
+    // real corpus `forge` and friends are invoked zero times, so a CLI-only probe
+    // called the Solidity rule a deletion candidate for someone who writes it.
+    writeSession("s1", [
+      {
+        type: "assistant",
+        uuid: "a1",
+        timestamp: "2026-08-01T10:00:00Z",
+        message: {
+          role: "assistant",
+          model: "claude-opus-5",
+          content: [
+            {
+              type: "tool_use",
+              id: "t1",
+              name: "Edit",
+              input: { file_path: "/tmp/demo/contracts/Vault.sol" },
+            },
+          ],
+        },
+      },
+    ]);
+
+    const row = rowFor("solidity");
+    expect(row.bucket).toBe("triggered");
+    expect(row.occurrences).toBe(1);
+  });
+
+  it("does not fire a language probe on an unrelated file", () => {
+    writeSession("s1", [
+      {
+        type: "assistant",
+        uuid: "a1",
+        timestamp: "2026-08-01T10:00:00Z",
+        message: {
+          role: "assistant",
+          model: "claude-opus-5",
+          content: [
+            {
+              type: "tool_use",
+              id: "t1",
+              name: "Write",
+              input: { file_path: "/tmp/demo/notes/solidity-plan.md" },
+            },
+          ],
+        },
+      },
+    ]);
+
+    // The word appears in the path; the suffix does not. A mention is not work.
+    expect(rowFor("solidity").bucket).toBe("never-triggered");
+  });
+
   it("counts a tool probe from the recorded tool name", () => {
     writeSession("s1", [
       {

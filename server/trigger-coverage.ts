@@ -47,6 +47,18 @@ export type TriggerProbe = {
    * rule with no observable trigger, which is the point of that kind.
    */
   match?: string[];
+  /**
+   * File suffixes whose editing also counts as the trigger occurring.
+   *
+   * Needed because a language convention is not only observable through its
+   * toolchain. Measured here: `forge`, `cast`, `anvil` and `slither` are invoked
+   * exactly zero times in a 502-session corpus, so a CLI-only probe called the
+   * Solidity rule a deletion candidate for an operator who writes Solidity. The
+   * work shows up as edits to `.sol` files instead. A rule reported unused on
+   * evidence that was never going to exist is the one output this pillar cannot
+   * afford.
+   */
+  extensions?: string[];
   /** Only for `not-observable`: why no transcript can speak to this rule. */
   why?: string;
 };
@@ -65,10 +77,23 @@ export const TRIGGER_PROBES: TriggerProbe[] = [
     topic: "Solidity and EVM contract conventions",
     kind: "bash",
     match: ["forge", "cast", "anvil", "slither"],
+    extensions: [".sol"],
   },
-  { id: "rust", topic: "Rust conventions", kind: "bash", match: ["cargo", "rustc", "rustup"] },
-  { id: "go", topic: "Go conventions", kind: "bash", match: ["go", "gofmt"] },
-  { id: "python", topic: "Python conventions", kind: "bash", match: ["python", "python3", "pip", "pip3", "uv", "pytest", "ruff"] },
+  {
+    id: "rust",
+    topic: "Rust conventions",
+    kind: "bash",
+    match: ["cargo", "rustc", "rustup"],
+    extensions: [".rs"],
+  },
+  {
+    id: "go",
+    topic: "Go conventions",
+    kind: "bash",
+    match: ["go", "gofmt"],
+    extensions: [".go"],
+  },
+  { id: "python", topic: "Python conventions", kind: "bash", match: ["python", "python3", "pip", "pip3", "uv", "pytest", "ruff"], extensions: [".py"] },
   { id: "chezmoi", topic: "dotfiles discipline: generic vs machine-local", kind: "bash", match: ["chezmoi"] },
   { id: "docker", topic: "container and image conventions", kind: "bash", match: ["docker", "docker-compose", "podman"] },
   { id: "kubernetes", topic: "cluster operations", kind: "bash", match: ["kubectl", "helm", "k9s"] },
@@ -108,6 +133,7 @@ export type TriggerCoverageRow = {
   topic: string;
   kind: TriggerKind;
   match: string[];
+  extensions: string[];
   bucket: TriggerBucket;
   /** Occurrences in the window; always 0 for a rule with no observable trigger. */
   occurrences: number;
@@ -133,7 +159,11 @@ export type TriggerCoverageReport = {
   adherenceReported: false;
 };
 
-const EXTRACTOR_ID = "trigger-coverage-v1";
+// Bump whenever the scan changes what it counts. The memo is keyed on this, so a
+// stale id would serve results computed by the previous logic against files that
+// have not changed - the file-edit observable was added and every cached tally
+// predating it is missing those counts.
+const EXTRACTOR_ID = "trigger-coverage-v2";
 
 /**
  * Strip heredoc bodies before anything else looks at the command.
@@ -271,6 +301,12 @@ function str(source: Record<string, unknown>, key: string): string {
   return typeof source[key] === "string" ? (source[key] as string) : "";
 }
 
+/** Tools that name a file they changed, so an edit to it is observable. */
+const EDIT_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
+
+const EXTENSION_PROBES = TRIGGER_PROBES.filter(
+  (probe) => (probe.extensions?.length ?? 0) > 0,
+);
 const BASH_PROBES = TRIGGER_PROBES.filter((probe) => probe.kind === "bash");
 const TOOL_PROBES = TRIGGER_PROBES.filter((probe) => probe.kind === "tool");
 const MCP_PROBES = TRIGGER_PROBES.filter((probe) => probe.kind === "mcp");
@@ -322,6 +358,19 @@ function scanFile(filePath: string): FileTally {
 
       for (const probe of TOOL_PROBES) {
         if (probe.match?.includes(toolName)) note(probe.id, timestamp);
+      }
+
+      if (EDIT_TOOLS.has(toolName)) {
+        const input = asRecord(block.input);
+        const filePath = input ? str(input, "file_path") || str(input, "notebook_path") : "";
+        if (filePath) {
+          const lower = filePath.toLowerCase();
+          for (const probe of EXTENSION_PROBES) {
+            if (probe.extensions!.some((suffix) => lower.endsWith(suffix))) {
+              note(probe.id, timestamp);
+            }
+          }
+        }
       }
 
       if (toolName !== "Bash") continue;
@@ -399,6 +448,7 @@ export function triggerCoverage(
         topic: probe.topic,
         kind: probe.kind,
         match: probe.match ?? [],
+        extensions: probe.extensions ?? [],
         bucket: "not-observable" as const,
         occurrences: 0,
         sessions: 0,
@@ -412,6 +462,7 @@ export function triggerCoverage(
       topic: probe.topic,
       kind: probe.kind,
       match: probe.match ?? [],
+      extensions: probe.extensions ?? [],
       bucket: count > 0 ? ("triggered" as const) : ("never-triggered" as const),
       occurrences: count,
       sessions: sessionCounts.get(probe.id) ?? 0,
