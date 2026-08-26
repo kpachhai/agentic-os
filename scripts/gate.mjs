@@ -288,7 +288,7 @@ async function main() {
   // fail its own start handshake - "Failed to start forks worker ... Timeout
   // waiting for worker to respond" - which surfaces as every test passing, one
   // unhandled error, and a non-zero exit. That reads as a broken suite and is not
-  // one, so it is retried once with fewer workers and the retry is reported.
+  // one, so it is re-run with fewer workers and the re-run is reported.
   //
   // The forks pool is not negotiable, tempting as it looks: --pool=threads runs
   // this suite in 7s instead of 55s and never hits the handshake, but it shares one

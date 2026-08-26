@@ -43,7 +43,8 @@ const CONSUMERS = ["scripts/gate.mjs", "scripts/ui-smoke.mjs"];
  * is what the second rule enforces; the list is the property, not a list of the
  * specific calls that once caused trouble, so a new one is caught the same way.
  */
-const MACHINE_READING = /\bos\.(loadavg|cpus|freemem|totalmem|uptime|availableParallelism)\s*\(/g;
+const MACHINE_READING =
+  /\b(?:os\.)?(loadavg|cpus|freemem|totalmem|uptime|availableParallelism)\s*\(/g;
 
 /** The one helper allowed to make those readings, because it returns a string. */
 const DIAGNOSTIC_HELPER = "function loadNote(";
