@@ -12,6 +12,7 @@
 //
 // Usage: node scripts/ui-smoke.mjs <baseUrl> [absentSourceHash,absentSourceHash,...]
 import { chromium } from "playwright";
+import { HANG_GUARD_MS } from "./gate-budgets.mjs";
 
 const base = process.argv[2];
 if (!base) {
@@ -23,13 +24,15 @@ const absent = new Set((process.argv[3] ?? "").split(",").filter(Boolean));
 /**
  * How long to wait for a route's data to appear.
  *
- * Configurable because the budget is about the code and the machine is not: the
- * slowest route reads 1,111 transcripts on its first request, which is about 7s
- * on an idle box and past any fixed budget on a loaded one. The caller widens
- * this when the machine is oversubscribed and says so in its output, rather than
- * letting a true statement about the load read as a failure of the page.
+ * A hang guard, not a speed assertion: nothing below asserts how quickly a route
+ * renders, only that it renders something legible. The slowest route reads over a
+ * thousand transcripts on its first request, so a guard tight enough for a busy
+ * machine to exceed can only turn a true statement about the load into a false
+ * one about the page. It is stated once, in gate-budgets.mjs, and read from
+ * there rather than handed down per run, so the same tree gets the same verdict
+ * whatever the box was doing.
  */
-const SELECTOR_TIMEOUT_MS = Number(process.env.UI_SMOKE_TIMEOUT_MS ?? 15000);
+const SELECTOR_TIMEOUT_MS = HANG_GUARD_MS.uiRoute;
 
 // Selector = proof of REAL data on screen. Empty states use .empty-state and the
 // unconfigured state uses .not-configured, so neither can satisfy these.

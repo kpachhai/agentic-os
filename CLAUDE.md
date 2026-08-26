@@ -250,8 +250,30 @@ list instead - an empty pillar reads as "no data", which is a different claim.
   instead of 55s and never hits the worker handshake, but it shares one process, so
   module-level caches that forks isolate leak between files - under
   `--sequence.shuffle` that produced 3 failures in one run and 1 in another. The
-  gate instead retries once, and only when a worker failed to start and no test
-  failed. Speed that costs isolation is not speed.
+  gate instead re-runs with fewer workers - capped at 2, then one at a time - and
+  only when a worker failed to start and no test failed. Speed that costs
+  isolation is not speed, and `--maxWorkers` costs none of it: it changes how many
+  files run at once, never whether each gets its own process. The handshake has a
+  start timeout inside vitest that nothing here can configure, so on a badly
+  oversubscribed box the suite can fail to start at all; capped at 2 was measured
+  losing it at load 42.70 across 8 threads with no test failing. Exhausting the
+  ladder stays a failure and never becomes a skip - a suite that never ran has
+  verified nothing, and a skip would put a green summary on top of that.
+- **No gate verdict may be derived from a reading of the machine.** The gate used
+  to read `os.loadavg()` once at process start and pick a narrow or a wide
+  wall-clock budget from it for checks 3b, 4 and 11. That reading is taken before
+  `npm ci`, the typecheck, the build and the whole suite - the four heaviest
+  things on the box while the gate runs - so it described a machine that no longer
+  existed by the time any budget applied, and the same tree came back red on an
+  idle machine and green on a busy one. Four separate reports on one unchanged
+  tree disagreed, and every one of them was honest. The budgets are now literals in
+  `scripts/gate-budgets.mjs`, which imports nothing, and none of them is a
+  performance assertion: no check here asserts how fast anything runs, only that
+  it completes, so a budget tight enough for a busy box to exceed can only
+  produce a false red. The load figure is still printed beside failures, because
+  a slow step and a broken one look identical from outside - but it is read at
+  the moment it is printed and it decides nothing.
+  `tests/gate-budgets.test.ts` is the enforcement point for both halves.
 - **The `/insights` store is a snapshot, not a feed.** `~/.claude/usage-data` is
   written in one pass when the operator runs that command and is never refreshed:
   all 200 statistics files shared one mtime and the 32 judgement files another,
@@ -310,7 +332,8 @@ list instead - an empty pillar reads as "no data", which is a different claim.
 
 - TypeScript strict; `npm run typecheck` must pass clean.
 - `scripts/gate.mjs` has **zero dependencies** by design - check 1 wipes
-  `node_modules`, so the gate must survive that. Keep it plain Node. The price of
+  `node_modules`, so the gate must survive that. Keep it plain Node; a sibling in
+  `scripts/` is fine, which is where `gate-budgets.mjs` lives. The price of
   that is three copies of the source-path defaults - `server/config.ts`,
   `scripts/gate.mjs`, `scripts/doctor.mjs` - and one had already drifted while
   three comments asked a human to keep them in step.

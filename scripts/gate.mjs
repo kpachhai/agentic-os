@@ -13,23 +13,32 @@ import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { HANG_GUARD_MS } from "./gate-budgets.mjs";
 
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
 process.chdir(ROOT);
 
 /**
- * What the machine is already doing.
+ * What the machine is doing, as a diagnostic string.
  *
- * Read once, at the top, because more than one check has a wall-clock budget and
- * all of them are wrong in the same way on a loaded box: the measurement is true
- * about the machine and false about the code. Every widened budget says so in the
- * output, and every timeout failure reports this, so a slow run is diagnosable
- * rather than indistinguishable from a broken one.
+ * Read where it is printed and never at process start: the gate's own npm ci,
+ * typecheck, build and suite are the heaviest things on this box while it runs,
+ * so a reading taken before them describes a machine that no longer exists. It
+ * used to be read once at the top and used to choose between a narrow and a wide
+ * wall-clock budget, which made the verdict a function of what the machine
+ * happened to be doing at second zero: the same tree passed on a busy box and
+ * failed on an idle one.
+ *
+ * Nothing branches on this now. It returns a string, and a string cannot be a
+ * budget; the budgets are machine-independent constants in gate-budgets.mjs, so
+ * a busy machine and an idle one reach the same verdict on the same tree. What
+ * this is for is the other half of that problem: a slow step and a broken one
+ * look identical from outside, and the load at the moment of the failure is what
+ * tells them apart.
  */
-const CPU_THREADS = os.cpus().length;
-const LOAD_AVG = os.loadavg()[0];
-const OVERSUBSCRIBED = LOAD_AVG > CPU_THREADS;
-const loadNote = `load ${LOAD_AVG.toFixed(2)} on ${CPU_THREADS} threads`;
+function loadNote() {
+  return `load ${os.loadavg()[0].toFixed(2)} on ${os.cpus().length} threads`;
+}
 
 const results = [];
 let bootedServer = null;
@@ -287,29 +296,45 @@ async function main() {
   // --sequence.shuffle that produced 3 failures in one run and 1 in another. Speed
   // that costs isolation is not speed.
   const WORKER_START_FAILURE = /Failed to start .* worker|Timeout waiting for worker to respond/;
-  const VITEST_MS = OVERSUBSCRIBED ? 480000 : 180000;
-  if (OVERSUBSCRIBED) {
+  const VITEST_MS = HANG_GUARD_MS.vitestSuite;
+  // Fewer forks at a time, in order. The handshake has a start timeout of its own
+  // inside vitest - 60000ms, read out of vitest 4.1.10 in node_modules rather than
+  // from its documentation - and nothing here can configure it, so capping
+  // concurrency is the only lever this script has over the contention that misses
+  // it. Capped at 2 was not enough at load 42.70 across 8 threads, measured, with
+  // no test failing. maxWorkers changes how many files run at once and never
+  // whether each gets its own process, so the isolation above is untouched.
+  const WORKER_LADDER = [
+    { args: [], how: "as many workers as vitest chose" },
+    { args: ["--maxWorkers=2"], how: "workers capped at 2" },
+    { args: ["--maxWorkers=1"], how: "one worker at a time" },
+  ];
+  let vt = run("npx", ["vitest", "run", ...WORKER_LADDER[0].args], { timeoutMs: VITEST_MS });
+  let ranAs = "";
+  for (let rung = 1; rung < WORKER_LADDER.length; rung++) {
+    if (vt.ok || !WORKER_START_FAILURE.test(vt.out) || /Failed Tests/.test(vt.out)) break;
+    ranAs = WORKER_LADDER[rung].how;
     console.log(
-      `[gate] check 3b: ${loadNote}; suite budget widened to ${VITEST_MS}ms from 180000ms`,
+      `[gate] check 3b: a worker failed to start under ${loadNote()} and no test ` +
+        `failed, so the suite is being re-run with ${ranAs}`,
     );
-  }
-
-  let vt = run("npx", ["vitest", "run"], { timeoutMs: VITEST_MS });
-  let workerRetry = false;
-  if (!vt.ok && WORKER_START_FAILURE.test(vt.out) && !/Failed Tests/.test(vt.out)) {
-    workerRetry = true;
-    console.log(
-      `[gate] check 3b: a worker failed to start under ${loadNote} and no test ` +
-        `failed, so the suite is being re-run with workers capped at 2`,
-    );
-    vt = run("npx", ["vitest", "run", "--maxWorkers=2"], { timeoutMs: VITEST_MS });
+    vt = run("npx", ["vitest", "run", ...WORKER_LADDER[rung].args], { timeoutMs: VITEST_MS });
   }
   if (!vt.ok) {
     const tail = vt.out.trim();
-    const detail = tail
-      ? `${loadNote}\n${tail.slice(-1200)}`
-      : `${loadNote}; the suite produced no output before it was killed, which is ` +
-        `what exceeding the ${VITEST_MS}ms budget looks like rather than a failing test`;
+    // Down to one worker and still unable to start one, with nothing failing, is
+    // the machine rather than the tree. It stays a failure anyway: a suite that
+    // never ran has verified nothing, and reporting that as a skip would put a
+    // green summary on a run that checked none of this.
+    const detail = WORKER_START_FAILURE.test(vt.out) && !/Failed Tests/.test(vt.out)
+      ? `${loadNote()}; no test failed - the suite could not start a worker inside ` +
+        `vitest's own start timeout, down to one at a time. That is this machine, ` +
+        `not this tree, and it is still red because nothing was verified. Re-run ` +
+        `when the box is quieter.\n${tail.slice(-800)}`
+      : tail
+        ? `${loadNote()}\n${tail.slice(-1200)}`
+        : `${loadNote()}; the suite produced no output before it was killed, which is ` +
+          `what exceeding the ${VITEST_MS}ms hang guard looks like rather than a failing test`;
     record("3b", "vitest per-pillar smokes", "FAIL", detail);
     return bail(summarize());
   }
@@ -337,7 +362,7 @@ async function main() {
     "PASS",
     [
       `tests=${vtCounts[1]} skipped=${vtCounts[2] ?? 0}`,
-      workerRetry ? `${loadNote}; re-run after a worker failed to start` : "",
+      ranAs ? `${loadNote()}; re-run with ${ranAs} after a worker failed to start` : "",
     ]
       .filter(Boolean)
       .join("; "),
@@ -357,21 +382,20 @@ async function main() {
   // printed nothing. A stalled attempt is killed and respawned; a server that
   // is actually broken fails every attempt, and its output prints below.
   //
-  // The per-attempt budget is widened when the machine is already oversubscribed.
-  // A run on a box at load 10.6 across 8 threads failed this check at 75s while
-  // the same boot took 2s standalone, which is a true statement about the machine
-  // and a false one about the server. Widening unconditionally instead would hide
-  // a real boot regression on an idle machine, which is the thing this check is
-  // for, so the allowance is granted only under measured load and the output says
-  // when it was granted.
-  const BOOT_ATTEMPT_MS = OVERSUBSCRIBED ? 75000 : 25000;
+  // The per-attempt budget is a hang guard and nothing else. This check asserts
+  // that the server answers /api/health at all; no assertion here is about how
+  // long that took, so a budget tight enough for a busy box to exceed can only
+  // produce a false red. It used to be narrow on an idle machine and wide on a
+  // loaded one, decided by a load reading taken before any of the work above -
+  // one box at load 10.6 across 8 threads failed at 75s while the same boot took
+  // 2s standalone, which is a true statement about the machine and a false one
+  // about the server.
+  //
+  // What makes a wide guard cheap is below: an attempt ends the moment the child
+  // exits, so a server that is genuinely broken fails this in about a second and
+  // only a live child that never answers ever reaches the clock.
+  const BOOT_ATTEMPT_MS = HANG_GUARD_MS.serverBootAttempt;
   const BOOT_ATTEMPTS = 3;
-  if (OVERSUBSCRIBED) {
-    console.log(
-      `[gate] check 4: ${loadNote}; per-attempt boot budget widened to ` +
-        `${BOOT_ATTEMPT_MS}ms from 25000ms`,
-    );
-  }
   // These pipes must be drained, not just opened: the child blocks on write
   // once the OS buffer fills, and the skills scan warns per shadowed skill.
   const capture = (chunk) => {
@@ -402,12 +426,19 @@ async function main() {
     bootedServer.stdout.on("data", capture);
     bootedServer.stderr.on("data", capture);
     bootedServer.on("error", (err) => capture(Buffer.from(`spawn error: ${err}\n`)));
-    bootedServer.on("exit", (code, signal) =>
-      capture(Buffer.from(`server exited: code=${code} signal=${signal}\n`)),
-    );
+    // A child that has exited will never answer, and the clock has nothing left
+    // to measure. Ending the attempt on the exit rather than on the deadline is
+    // what the budget is actually protecting against - a stall, not a crash - and
+    // it is what lets the guard be wide enough never to fire on a busy machine
+    // without making a genuinely broken server take three full budgets to report.
+    let exited = null;
+    bootedServer.on("exit", (code, signal) => {
+      exited = `code=${code} signal=${signal}`;
+      capture(Buffer.from(`server exited: ${exited}\n`));
+    });
 
     const deadline = Date.now() + BOOT_ATTEMPT_MS;
-    while (Date.now() < deadline && !health) {
+    while (Date.now() < deadline && !health && !exited) {
       try {
         health = await fetchJson(`${base}/api/health`, 2000);
       } catch {
@@ -417,8 +448,9 @@ async function main() {
     attemptMs = Date.now() - attemptStart;
     if (!health) {
       console.log(
-        `[gate] check 4: boot attempt ${attempt}/${BOOT_ATTEMPTS} stalled after ` +
-          `${attemptMs}ms (${loadNote})` +
+        `[gate] check 4: boot attempt ${attempt}/${BOOT_ATTEMPTS} ` +
+          `${exited ? `exited (${exited})` : "stalled"} after ` +
+          `${attemptMs}ms (${loadNote()})` +
           `${serverLog.trim() ? "" : "; child printed nothing"}; respawning`,
       );
       bootedServer.kill("SIGKILL");
@@ -438,7 +470,7 @@ async function main() {
       "server boot + /api/health",
       "FAIL",
       `no health after ${BOOT_ATTEMPTS} attempts, ${totalBootMs}ms total ` +
-        `(budget ${BOOT_ATTEMPT_MS}ms each, ${loadNote})${silent}`,
+        `(hang guard ${BOOT_ATTEMPT_MS}ms each, ${loadNote()})${silent}`,
     );
     return bail(summarize());
   }
@@ -785,15 +817,13 @@ async function main() {
     .map(([, hash]) => hash);
   const uiArgs = ["scripts/ui-smoke.mjs", base];
   if (absentRoutes.length) uiArgs.push(absentRoutes.join(","));
-  // The slowest route reads 1,111 transcripts on its first request. On an idle
-  // machine that is about 7s and well inside the budget; oversubscribed it is
-  // not, and a timeout there measures the box rather than the page. Widened
-  // deliberately and reported, the same way the other wall-clock budgets are.
-  const uiTimeoutMs = OVERSUBSCRIBED ? 45000 : 15000;
-  const ui = run("node", uiArgs, {
-    timeoutMs: 180000,
-    env: { UI_SMOKE_TIMEOUT_MS: String(uiTimeoutMs) },
-  });
+  // The per-route hang guard lives in gate-budgets.mjs and the smoke reads it
+  // itself, so it is stated once. The whole-run timeout below is the older,
+  // coarser guard on the smoke process; it does not dominate the per-route guard
+  // across every route, so a run where many routes hang is killed here and
+  // reports the process rather than naming the route. That pairing already
+  // shipped, unchanged - it is what every busy machine ran under.
+  const ui = run("node", uiArgs, { timeoutMs: 180000 });
   console.log(ui.out.trim().split("\n").map((l) => `      ${l}`).join("\n"));
   // Counted from what the smoke actually reported rather than written into this
   // string. The hardcoded number said 20 while the script walked 23, which is
@@ -802,21 +832,14 @@ async function main() {
   const routesWalked = (ui.out.match(/^ui-smoke (?:PASS|FAIL) /gm) ?? []).length;
   const uiLabel = `UI render smoke (playwright, ${routesWalked} routes)`;
   if (!ui.ok) {
-    record(11, uiLabel, "FAIL", ui.out.slice(-600));
+    record(11, uiLabel, "FAIL", `${loadNote()}\n${ui.out.slice(-600)}`);
     return bail(summarize());
   }
   record(
     11,
     uiLabel,
     "PASS",
-    [
-      absentRoutes.length
-        ? `not-configured panel asserted for: ${absentRoutes.join(", ")}`
-        : "",
-      OVERSUBSCRIBED ? `${loadNote}; selector budget widened to ${uiTimeoutMs}ms` : "",
-    ]
-      .filter(Boolean)
-      .join(", "),
+    absentRoutes.length ? `not-configured panel asserted for: ${absentRoutes.join(", ")}` : "",
   );
 
   // ---- 12: localhost-only bind ----

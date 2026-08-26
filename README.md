@@ -347,6 +347,21 @@ A check the run never reached reports `SKIP (not reached)`. The gate stops at th
 first hard failure, so the checks after it are unknown rather than passing, and
 leaving them out of the summary made a short list read as a clean one.
 
+**The same tree gets the same verdict on a busy machine and an idle one.** The
+three wall-clock budgets that decide anything - the suite, one server boot
+attempt, and one route in the render smoke - assert nothing about speed. They
+assert that the suite passes, that the server answers `/api/health`, and that
+every route renders. So each wall clock is a hang guard, not a budget you can
+fail on merit: the values live in `scripts/gate-budgets.mjs` as plain literals in
+a file that imports nothing, and they are deliberately wide. They used to be
+chosen at process start from `os.loadavg()`, which is read before `npm ci`, the
+typecheck, the build and the whole suite have run - the four heaviest things on
+the machine while the gate is running - so one tree could come back red on an
+idle box and green on a loaded one. The load figure still appears beside a
+failure, because a slow step and a broken one look identical from outside, but it
+is read at the moment it is printed and it decides nothing.
+`tests/gate-budgets.test.ts` fails if a budget can read the machine again.
+
 **A skip is not a pass, and some checks can skip on any machine.** Every
 per-pillar smoke (5, 6, 7, 9, 10, 10b) skips when its source is absent, which for
 the four personal pillars is the normal state on a fresh clone. Three more skip for
@@ -430,6 +445,7 @@ src/
   tokens.css    the palette; no remote fonts or CDN assets
 scripts/
   gate.mjs      the acceptance gate (zero deps - it must survive wiping node_modules)
+  gate-budgets.mjs  the gate's wall-clock hang guards, as literals; imports nothing
   doctor.mjs    source-by-source report of what this machine has (zero deps too)
   ui-smoke.mjs  headless Playwright render check across every route
 tests/          vitest: synthetic parser fixtures + smokes against real data
@@ -441,7 +457,10 @@ neither can import `server/config.ts`, so the default source paths exist in thre
 copies. `tests/script-config-parity.test.ts` extracts all three by text and
 compares them, and does the same for the pillar route list named in `src/App.tsx`,
 `scripts/ui-smoke.mjs` and `scripts/gate.mjs`. A drift between any of them fails
-`npm test` instead of waiting to be noticed.
+`npm test` instead of waiting to be noticed. `tests/gate-budgets.test.ts` reads
+the same two scripts the same way, for a different rule: every wall-clock guard
+is a literal in `scripts/gate-budgets.mjs`, and every reading of the machine is
+confined to the one helper that prints diagnostics.
 
 The API, all under the loopback guard:
 
@@ -603,6 +622,7 @@ frame so the page keeps a single vertical axis.
 | Launch starts but the run fails immediately | Usually authentication. The child inherits your environment and uses your existing Claude Code credentials; confirm the CLI works standalone first. |
 | CTA pillar intermittently errors on a locked database | Claude Code is checkpointing the same SQLite file. The reader is read-only with WAL retry; if it persists, retry once the write settles. |
 | First `npm run gate` is slow at check 11 | Playwright is downloading Chromium. One-time. |
+| Check 3b fails with `Failed to start ... worker` and no failing test | The machine is too busy for vitest to start a worker inside its own start timeout, which is fixed inside vitest and not configurable here. The gate re-runs with fewer workers, capped at 2 and then one at a time; if that also missed it, no test ran and nothing was verified, which is why it is red rather than skipped. Re-run when the box is quieter. |
 | A sync reports that a source was not read | That configured path could not be opened this run, so what was already indexed from it was kept rather than removed. Fix the key it names, or ignore it if you simply do not have that source - the sync cannot tell a wrong path from one you never had, so it reports both the same way. |
 | Search says `source missing` while the index file still exists | The index is a cache, not a source. All four of `transcriptsDir`, `engramVaultPath`, `wrapsDir` and `frictionLogPath` are gone, so it stopped answering out of a cache whose sources have all moved. Any one of them being present is enough. |
 | The Usage view says the price table is past due | The vendored table's last verification is older than its shelf life. Re-read the vendor's published pricing and update the rates and `PRICING_AS_OF` in `server/pricing.ts` in the same commit. `npm run doctor` prints the same line. |
