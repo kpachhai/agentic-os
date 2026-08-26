@@ -32,6 +32,8 @@ type SyncReport = {
   filesRemoved: number;
   documents: number;
   elapsedMs: number;
+  /** Sources this sync could not read; their documents were kept, not removed. */
+  sourcesUnreadable: Array<{ kind: string; path: string }>;
 };
 
 const KINDS: Array<{ key: Kind | "all"; label: string }> = [
@@ -191,6 +193,18 @@ export function SearchView() {
             </>
           )}
         </p>
+      )}
+
+      {lastSync && lastSync.sourcesUnreadable.length > 0 && (
+        <div className="empty-state" style={{ marginBottom: 16 }}>
+          {lastSync.sourcesUnreadable.length === 1 ? "one source was" : "these sources were"}{" "}
+          not read this sync, so what was already indexed from{" "}
+          {lastSync.sourcesUnreadable.length === 1 ? "it" : "them"} was kept rather
+          than removed:{" "}
+          {lastSync.sourcesUnreadable
+            .map((source) => `${source.kind} (${source.path})`)
+            .join(", ")}
+        </div>
       )}
 
       {stats && stats.documents === 0 && (

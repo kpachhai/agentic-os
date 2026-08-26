@@ -5,7 +5,9 @@ import {
   costOf,
   isUnbilled,
   PRICING_AS_OF,
+  PRICING_SHELF_LIFE_DAYS,
   pricedModels,
+  pricingFreshness,
   rateFor,
   totalCost,
   usageBlocks,
@@ -19,6 +21,35 @@ describe("vendored rates", () => {
     // Every figure derived from this table is only as good as this date, so it
     // ships alongside the numbers rather than living in a comment.
     expect(PRICING_AS_OF).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(Number.isNaN(Date.parse(`${PRICING_AS_OF}T00:00:00Z`))).toBe(false);
+  });
+
+  it("refuses a verification date in the future", () => {
+    // Staleness is a matter of degree and stays advisory; a date later than today
+    // is not. It is well-formed and impossible, which means the constant was
+    // mistyped - and a mistyped date makes every age computed from it wrong in
+    // the direction that says the table is fresh.
+    expect(pricingFreshness().fromFuture).toBe(false);
+  });
+
+  it("measures the table's age against an injected clock, on both sides of the shelf life", () => {
+    // Dated against a fixed clock rather than today's, so this asserts the
+    // arithmetic instead of reddening on a morning nobody touched the code.
+    const dayAfter = (days: number): Date =>
+      new Date(Date.parse(`${PRICING_AS_OF}T00:00:00Z`) + days * 86_400_000);
+
+    const fresh = pricingFreshness(dayAfter(PRICING_SHELF_LIFE_DAYS));
+    expect(fresh.ageDays).toBe(PRICING_SHELF_LIFE_DAYS);
+    expect(fresh.stale).toBe(false);
+
+    const expired = pricingFreshness(dayAfter(PRICING_SHELF_LIFE_DAYS + 1));
+    expect(expired.ageDays).toBe(PRICING_SHELF_LIFE_DAYS + 1);
+    expect(expired.stale).toBe(true);
+
+    // The same-day case, so an age of zero is reported as zero rather than as
+    // something falsy that a caller reads as "unknown".
+    expect(pricingFreshness(dayAfter(0)).ageDays).toBe(0);
+    expect(pricingFreshness(dayAfter(-1)).fromFuture).toBe(true);
   });
 
   it("prices the current model families", () => {

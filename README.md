@@ -24,9 +24,11 @@ dashboard. Clone it, run it, and it reads what is already on your disk.
   record of *intent* rather than of what Claude did with it.
 - **Usage + Pacing** - your spend grouped into the five-hour windows your
   subscription limits are actually expressed in, priced from a table vendored into
-  this repo rather than fetched at runtime. If you install the optional capture
-  hook, it also shows how much of your five-hour and seven-day windows you have
-  consumed - the one number that lives in your account and nowhere on disk.
+  this repo rather than fetched at runtime, shown with how many days ago that table
+  was last verified and the shelf life it is measured against. If you install the
+  optional capture hook, it also shows how much of your five-hour and seven-day
+  windows you have consumed - the one number that lives in your account and nowhere
+  on disk.
 - **Memory graph** - the link structure between your memory notes, and the faults
   in it: references to notes that do not exist, notes nothing links to, and dead
   ends.
@@ -100,6 +102,11 @@ dashboard. Clone it, run it, and it reads what is already on your disk.
 - **Search everything** - one query across sessions, memory, friction and wraps,
   answered in milliseconds from a rebuildable index. Deleting the index loses
   nothing; the gate proves that by deleting it and requiring identical answers.
+  A sync that cannot read one of those four sources keeps what it already holds
+  from it and names the path on screen, rather than reading "saw no files" as
+  "every file was deleted"; with none of the four present the pillar answers
+  `503 source missing` like any other, because the index outlives its sources and
+  a stale hit shown as current is worse than an empty answer.
 - **What is in effect** - resolved settings annotated by which file won each key,
   the MCP servers configured, and where each plugin came from with its usage
   count. Rendered field by field from an allowlist, never by filtering a parsed
@@ -136,15 +143,18 @@ rather than broadly, and every part of it is mechanically checkable.
 
 - It binds `127.0.0.1` and nothing else. `BIND_HOST` is a constant, not a config
   key, and gate check 12 asserts that a connection from this machine's LAN address
-  is refused.
+  is refused. That assertion needs a non-loopback address to connect from, so on a
+  machine that has none it reports SKIP rather than PASS - read check 12's own
+  line, not the gate's colour. See **Verify** below.
 - The only `fetch()` calls in the server are three in `server/digest.ts`, and every
   candidate URL is filtered through `isLoopbackUrl` first. Pointing `localModelUrl`
   at a remote host does not send data there; the address is rejected.
 - There are no outbound-capable dependencies. The only absolute URLs in shipped
   code are loopback ports for local model runners, plus one `example.test` string
   in a test.
-- The price table is vendored into `server/pricing.ts` with its as-of date printed
-  on screen, precisely so that showing you a cost never requires a request.
+- The price table is vendored into `server/pricing.ts` with its as-of date and its
+  age in days printed on screen, precisely so that showing you a cost never
+  requires a request.
 - No CDN fonts, no external stylesheets, no remote images. The UI works with the
   network off.
 
@@ -314,18 +324,49 @@ Other scripts: `npm test` (vitest), `npm run typecheck` (`tsc --noEmit`),
 npm run gate
 ```
 
-Runs the 17-check acceptance gate: install, typecheck, build, the vitest suites,
-server boot, per-pillar smoke tests against your real data, a hermetic launcher
-wiring check, a transcript-derived sessions and hooks check including a path
-traversal refusal, the source-availability report, an index-disposability proof, a headless
-Playwright render smoke over all twenty routes, a localhost-only bind assertion,
-and a cache-idempotence proof over the three heaviest routes.
-Checks are numbered 1-13 with the vitest suite as 3b and later additions as 10b,
-10c and 10d, so check numbers referenced elsewhere stay stable. Green gate = working install.
+Runs the acceptance gate: install, typecheck, build, the vitest suites, server
+boot, per-pillar smoke tests against your real data, a hermetic launcher wiring
+check, a transcript-derived sessions and hooks check including a path traversal
+refusal, the source-availability report, an index-disposability proof, a headless
+Playwright render smoke over every pillar route, a localhost-only bind assertion,
+and a cache-idempotence proof over the three heaviest routes. The roster is
+declared at the top of `scripts/gate.mjs` and every run prints all of it, so the
+list of checks is read off the run rather than restated here. Checks are numbered
+1-13 with the vitest suite as 3b and later additions as 10b, 10c and 10d, so check
+numbers referenced elsewhere stay stable. Green gate = working install.
+
+Several checks report the size of what they looked at, not only a verdict, because
+a verdict over a shrunken corpus is the failure this repo keeps finding. Check 3b
+prints how many tests ran and how many skipped themselves for a missing source.
+Check 10c compares the source report the server serves against the probe the gate
+printed at the start of the run and requires the two sets of source keys to be
+equal, so a probe disappearing from either side reddens it. Check 11 prints how
+many routes it walked.
 
 A check the run never reached reports `SKIP (not reached)`. The gate stops at the
 first hard failure, so the checks after it are unknown rather than passing, and
 leaving them out of the summary made a short list read as a clean one.
+
+**A skip is not a pass, and some checks can skip on any machine.** Every
+per-pillar smoke (5, 6, 7, 9, 10, 10b) skips when its source is absent, which for
+the four personal pillars is the normal state on a fresh clone. Three more skip for
+reasons worth knowing before you read a green summary:
+
+- **Check 10d (derived index is disposable)** needs something to index. With none
+  of the four index sources present, the sync answers `503 source missing` and
+  there are no documents to compare - a missing source rather than a broken cache.
+- **Check 12 (localhost-only bind)** needs a non-loopback IPv4 address to attempt
+  a connection from. An offline laptop or a container with only `lo` gives it
+  nothing to observe, so it reports SKIP and **the bind is untested by the gate on
+  that run.** Known gap as of 2026-08-25: until the skip was added this check
+  printed PASS in that state, which is a check printing what a passing check prints
+  while observing nothing. The bind is still a constant, and
+  `grep -n BIND_HOST server/index.ts` shows that much without a network.
+- **Check 13 (heavy reads are idempotent)** skips when its routes have no source,
+  and also when the transcript tree moves mid-check or the UTC date rolls over
+  during it. A live Claude session appending while the gate runs produces exactly
+  the signature a cache bug would, so that run is recorded as untested rather than
+  as either a pass or a failure. Re-run it on a quiet tree.
 
 Check 11 does not skip a route whose source is missing; it requires that route to
 render the not-configured panel. That state is what a fresh clone actually shows,
@@ -335,6 +376,27 @@ was never checked. Both outcomes pass. An error panel or a blank page fails.
 The launcher check runs the configured `smokeCommand` (default
 `claude --version`), not a real skill: it proves spawn/stream/exit wiring
 without cost or nondeterminism. Real skill launches are exercised manually.
+
+### What runs on a push
+
+`.github/workflows/ci.yml` runs on every push and pull request: `npm ci`,
+`npm run typecheck`, `npm run build`, `npm test`, on Node 24. `npm ci` rather than
+`npm install`, because it fails when `package-lock.json` and `package.json`
+disagree and nothing else verifies the lock file.
+
+It deliberately does not run `npm run gate`. The gate's per-pillar checks read
+your own transcripts, memory vault, friction log and token-analyzer database,
+which a runner has none of, so they would report SKIPPED and certify nothing, and
+check 10d would skip for the same reason rather than proving the cache is
+disposable. The launcher smoke needs a `claude` binary no runner has. What is
+left needs a booted server on loopback, a headless Chromium, or a real
+non-loopback interface.
+
+So a green run there means: it installs, it typechecks, it builds, and every suite
+that does not need an operator's own files passes. **It does not mean the gate is
+green.** The acceptance claim lives in `npm run gate`, run locally against real
+data, and CI is the layer underneath it - the checks that need no data at all,
+run often enough that a broken tree cannot sit unnoticed between gate runs.
 
 ## How it works
 
@@ -368,9 +430,18 @@ src/
   tokens.css    the palette; no remote fonts or CDN assets
 scripts/
   gate.mjs      the acceptance gate (zero deps - it must survive wiping node_modules)
+  doctor.mjs    source-by-source report of what this machine has (zero deps too)
   ui-smoke.mjs  headless Playwright render check across every route
 tests/          vitest: synthetic parser fixtures + smokes against real data
+.github/workflows/ci.yml   the data-independent half of the gate, on every push
 ```
+
+Because `gate.mjs` and `doctor.mjs` must survive check 1 wiping `node_modules`,
+neither can import `server/config.ts`, so the default source paths exist in three
+copies. `tests/script-config-parity.test.ts` extracts all three by text and
+compares them, and does the same for the pillar route list named in `src/App.tsx`,
+`scripts/ui-smoke.mjs` and `scripts/gate.mjs`. A drift between any of them fails
+`npm test` instead of waiting to be noticed.
 
 The API, all under the loopback guard:
 
@@ -382,7 +453,7 @@ The API, all under the loopback guard:
 | `GET /api/hooks` | per-hook cost and reliability |
 | `GET /api/live` | sessions running right now |
 | `GET /api/tasks` | task boards; `?abandoned=true` for unfinished work only |
-| `GET /api/search` | full-corpus search; `POST /api/index/sync` builds it, `GET /api/index/stats` reports it |
+| `GET /api/search` | full-corpus search; `POST /api/index/sync` builds it and returns `sourcesUnreadable`, `GET /api/index/stats` reports it. All three answer `503 source missing` when none of the four index sources exists |
 | `GET /api/config/settings`, `/config/mcp`, `/config/plugins` | what is actually in effect, allowlist-rendered |
 | `GET /api/digest/:kind/:id` | plain-language digest; `POST .../paraphrase` adds a local-model rewrite |
 | `GET /api/digest/model` | whether a local model runner is listening |
@@ -390,7 +461,7 @@ The API, all under the loopback guard:
 | `GET /api/friction` | parsed + linked entries, filterable by type and status |
 | `GET /api/friction/aging` | how long loops stay open, over the whole log rather than the filtered view |
 | `GET /api/history`, `/history/stats` | your prompts, searchable; and the shape of them with no prompt text |
-| `GET /api/blocks` | spend grouped into five-hour windows, priced from the vendored table |
+| `GET /api/blocks` | spend grouped into five-hour windows, priced from the vendored table, whose as-of date and age in days travel with the figures |
 | `GET /api/pacing`, `/pacing/setup` | captured rate-limit samples; and the hook command that starts capturing them |
 | `GET /api/graph` | memory-note link structure, with broken links and orphans |
 | `GET /api/file-history`, `/version`, `/diff` | stored version index; one version's text; a diff between two |
@@ -408,10 +479,18 @@ Every route lives under the loopback guard; an unmatched `/api/*` path answers
 `404` as JSON rather than falling through to the SPA.
 
 Four more, added by the pillars above. **Prices are vendored, not fetched**: a
-table in `server/pricing.ts` carries an explicit as-of date that is printed on
-screen, because a table that can go stale without erroring needs its age visible
-rather than trusted. A window containing a model the table does not price reports
-no cost at all rather than a partial one. **Capture and reading are separate**:
+table in `server/pricing.ts` carries an explicit as-of date, and the Usage view
+prints that date, how many days have passed since it, and the shelf life those
+days are measured against - because a table that can go stale without erroring
+needs its age visible rather than trusted, and a date on its own leaves the
+arithmetic to the reader. The shelf life is a commitment, not a measurement:
+nothing here can observe a vendor changing a list price, so it is the longest the
+maintainer accepts having a possibly-wrong cost on screen before opening the
+pricing page again. Past it, the line asks for a re-read; the age is printed either
+way, so what you act on does not depend on that threshold being right.
+`npm run doctor` prints the same age without starting the server. A window
+containing a model the table does not price reports no cost at all rather than a
+partial one. **Capture and reading are separate**:
 rate-limit consumption exists only in the payload Claude Code hands its statusline
 command, so reading it requires a hook that appends samples to a file - this tool
 prints the command and never installs it, because editing your settings is not
@@ -436,7 +515,9 @@ ordered chronologically before linking.
 The launch pillar is a powerful action surface; its envelope is:
 
 - **Loopback bind.** The server listens on `127.0.0.1` only; the launch
-  endpoint is unreachable from off-machine (gate check 12 asserts this).
+  endpoint is unreachable from off-machine (gate check 12 asserts this, and
+  reports SKIP rather than PASS on a machine with no non-loopback address to
+  attempt the connection from - see **Verify**).
 - **Browser-attack guard.** An `/api/*` middleware rejects any request whose
   `Host` is not loopback (DNS-rebinding defense) or whose `Origin` is
   off-machine (CSRF defense), so a malicious web page you visit cannot drive
@@ -522,6 +603,9 @@ frame so the page keeps a single vertical axis.
 | Launch starts but the run fails immediately | Usually authentication. The child inherits your environment and uses your existing Claude Code credentials; confirm the CLI works standalone first. |
 | CTA pillar intermittently errors on a locked database | Claude Code is checkpointing the same SQLite file. The reader is read-only with WAL retry; if it persists, retry once the write settles. |
 | First `npm run gate` is slow at check 11 | Playwright is downloading Chromium. One-time. |
+| A sync reports that a source was not read | That configured path could not be opened this run, so what was already indexed from it was kept rather than removed. Fix the key it names, or ignore it if you simply do not have that source - the sync cannot tell a wrong path from one you never had, so it reports both the same way. |
+| Search says `source missing` while the index file still exists | The index is a cache, not a source. All four of `transcriptsDir`, `engramVaultPath`, `wrapsDir` and `frictionLogPath` are gone, so it stopped answering out of a cache whose sources have all moved. Any one of them being present is enough. |
+| The Usage view says the price table is past due | The vendored table's last verification is older than its shelf life. Re-read the vendor's published pricing and update the rates and `PRICING_AS_OF` in `server/pricing.ts` in the same commit. `npm run doctor` prints the same line. |
 
 ## Non-goals (v1)
 

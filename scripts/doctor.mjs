@@ -152,7 +152,7 @@ const SOURCES = [
   {
     key: "pacingLogPath",
     label: "rate-limit capture log",
-    fallback: "~/.claude/rate-limit-log.jsonl",
+    fallback: "~/.claude/pacing-log.jsonl",
     kind: "file",
     tier: "bespoke",
     powers: "how much of your five-hour and seven-day windows you have consumed",
@@ -306,6 +306,48 @@ function checkClaudeBinary(raw) {
   return { present: false, detail: `not found on PATH as "${name}"` };
 }
 
+/**
+ * How old the vendored price table's verification is.
+ *
+ * The two constants are read out of server/pricing.ts rather than copied here,
+ * because a copy would be a fourth place holding one value and the copy would be
+ * the stale one. This script is dependency-free, so it reads them as text - and
+ * an unreadable one is reported rather than defaulted, since a fallback of "zero
+ * days old" would turn a renamed constant into a reassuring line about a table
+ * nobody has checked.
+ */
+function checkPricingAge() {
+  const file = path.join(ROOT, "server", "pricing.ts");
+  let source = "";
+  try {
+    source = fs.readFileSync(file, "utf8");
+  } catch {
+    return { readable: false, detail: `could not read ${file}` };
+  }
+  const asOf = source.match(/export const PRICING_AS_OF = "(\d{4}-\d{2}-\d{2})";/);
+  const shelfLife = source.match(/export const PRICING_SHELF_LIFE_DAYS = (\d+);/);
+  if (!asOf || !shelfLife) {
+    return {
+      readable: false,
+      detail:
+        `PRICING_AS_OF or PRICING_SHELF_LIFE_DAYS not found in ${file}; ` +
+        "the table's age cannot be reported until this reads them again",
+    };
+  }
+  const ageDays = Math.floor(
+    (Date.now() - Date.parse(`${asOf[1]}T00:00:00Z`)) / 86400000,
+  );
+  const shelfLifeDays = Number(shelfLife[1]);
+  return {
+    readable: true,
+    asOf: asOf[1],
+    ageDays,
+    shelfLifeDays,
+    stale: ageDays > shelfLifeDays,
+    fromFuture: ageDays < 0,
+  };
+}
+
 function checkLocalModel(raw) {
   // Reported, never started. Plain-language digests need a model runner already
   // listening on loopback; the app does not launch one and does not download
@@ -318,6 +360,7 @@ const { file: configFile, raw, exists: configExists } = loadRawConfig();
 const results = SOURCES.map((source) => probe(source, raw));
 const binary = checkClaudeBinary(raw);
 const model = checkLocalModel(raw);
+const pricing = checkPricingAge();
 
 const universal = results.filter((r) => r.tier === "universal");
 const bespoke = results.filter((r) => r.tier === "bespoke");
@@ -331,6 +374,7 @@ if (asJson) {
         configExists,
         claudeBinary: binary,
         localModelUrl: model.url,
+        pricing,
         sources: results.map(({ key, label, tier, present, configured, paths, detail }) => ({
           key,
           label,
@@ -351,6 +395,25 @@ if (asJson) {
   console.log(`  config file : ${configFile}${configExists ? "" : "  (absent - using $HOME defaults)"}`);
   console.log(`  claude CLI  : ${binary.present ? binary.detail : binary.detail}`);
   console.log(`  local model : ${model.url}  (probed at request time, never started by this tool)`);
+  // Printed on every run whatever the shelf life is set to, so the figure a
+  // reader acts on is the measured age rather than a threshold's verdict.
+  if (!pricing.readable) {
+    console.log(`  price table : UNKNOWN AGE - ${pricing.detail}`);
+  } else if (pricing.fromFuture) {
+    console.log(
+      `  price table : verified ${pricing.asOf}, which is in the future - ` +
+        "PRICING_AS_OF in server/pricing.ts is mistyped",
+    );
+  } else {
+    console.log(
+      `  price table : verified ${pricing.asOf}, ${pricing.ageDays} days ago ` +
+        `(shelf life ${pricing.shelfLifeDays} days)` +
+        (pricing.stale
+          ? " - past due; re-read the vendor's published pricing and update" +
+            " PRICING_AS_OF in server/pricing.ts in the same commit"
+          : ""),
+    );
+  }
 
   console.log(
     "\n  Universal sources - every Claude Code install has these.\n" +

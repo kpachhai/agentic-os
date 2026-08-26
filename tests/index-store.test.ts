@@ -254,6 +254,65 @@ describe("syncIndex", () => {
     db.close();
   });
 
+  it("holds a pillar's documents when its source cannot be read, and names the path", () => {
+    // The removal sweep reads "not seen this run" as "deleted", and a source that
+    // cannot be opened contributes exactly as many files as an emptied one: none.
+    // So one mistyped path in config.json would purge a whole pillar out of the
+    // index and report a clean sync. Measured against a copy of a real index, a
+    // wrong vault path removed 879 files and 848 memory documents at HTTP 200.
+    writeTranscript("-tmp-project", "sess-1", [userTurn("a transcript that stays")]);
+    writeThought("t-one.md", "first note", "indexed body one");
+    writeThought("t-two.md", "second note", "indexed body two");
+    const db = openIndex(indexPath);
+    syncIndex(db, config);
+    expect(indexStats(db, indexPath).byKind.thought).toBe(2);
+
+    const typo = { ...config, engramVaultPath: path.join(root, "vault-typo") };
+    const report = syncIndex(db, typo);
+
+    expect(report.sourcesUnreadable).toContainEqual({
+      kind: "thought",
+      path: typo.engramVaultPath,
+    });
+    expect(report.filesRemoved).toBe(0);
+    expect(indexStats(db, indexPath).byKind.thought).toBe(2);
+    expect(searchIndex(db, "indexed")).toHaveLength(2);
+    db.close();
+  });
+
+  it("still removes a vanished file while another source is unreadable", () => {
+    // The other half of the guard: holding an unread source's documents must not
+    // become "stop removing anything". A real deletion under a source that IS
+    // readable still has to take its documents with it.
+    writeTranscript("-tmp-project", "sess-1", [userTurn("findable phrase alpha")]);
+    writeTranscript("-tmp-project", "sess-2", [userTurn("findable phrase beta")]);
+    writeThought("t-one.md", "a note", "held body");
+    const db = openIndex(indexPath);
+    syncIndex(db, config);
+
+    fs.rmSync(path.join(root, "projects", "-tmp-project", "sess-2.jsonl"));
+    const typo = { ...config, engramVaultPath: path.join(root, "vault-typo") };
+    const report = syncIndex(db, typo);
+
+    expect(report.filesRemoved).toBe(1);
+    expect(searchIndex(db, "beta")).toHaveLength(0);
+    expect(indexStats(db, indexPath).byKind.thought).toBe(1);
+    db.close();
+  });
+
+  it("reports no unreadable source when every configured one is present", () => {
+    // The negative control. Without it, a guard hard-coded to report every source
+    // as unreadable would pass the two tests above and never remove anything.
+    writeTranscript("-tmp-project", "sess-1", [userTurn("a transcript")]);
+    writeThought("t-one.md", "a note", "a body");
+    writeWrap("2026-07-01_thing", "A Wrap", "wrap body");
+    writeFrictionLog(["| 2026-07-01 | Friction | something rubbed |"]);
+    const db = openIndex(indexPath);
+    const report = syncIndex(db, config);
+    expect(report.sourcesUnreadable).toEqual([]);
+    db.close();
+  });
+
   it("builds from whichever pillars exist, without a missing one failing the sync", () => {
     // Only transcripts here: no vault, no wraps, no friction log.
     writeTranscript("-tmp-project", "sess-1", [userTurn("only transcripts on this box")]);

@@ -48,6 +48,9 @@ export type SearchHit = IndexedDocument & {
   excerpt: string;
 };
 
+/** A source the sync could not read, so nothing indexed from it was removed. */
+export type UnreadableSource = { kind: IndexedKind; path: string };
+
 export type SyncReport = {
   filesScanned: number;
   filesIndexed: number;
@@ -56,6 +59,12 @@ export type SyncReport = {
   documents: number;
   rebuilt: boolean;
   elapsedMs: number;
+  /**
+   * Sources this run could not read. Their existing documents were held rather
+   * than removed, so this is the difference between "you have no wraps" and "the
+   * wraps path is wrong" - which the file counts alone cannot express.
+   */
+  sourcesUnreadable: UnreadableSource[];
 };
 
 function ensureParentDir(filePath: string): void {
@@ -305,9 +314,18 @@ function sessionDocument(file: {
  * pass up front keeps the reader as the only thing that parses a thought while
  * making a sync linear.
  */
-type SyncContext = { thoughtsByPath: Map<string, ReturnType<typeof getThought>> };
+type SyncContext = {
+  thoughtsByPath: Map<string, ReturnType<typeof getThought>>;
+  /**
+   * Whether the vault was actually read. An empty map means "no thought is
+   * indexed" either way, so without this flag a vault that could not be opened is
+   * indistinguishable from one holding nothing - and the removal sweep would read
+   * the first as "every thought was deleted".
+   */
+  thoughtsReadable: boolean;
+};
 
-function loadThoughtsByPath(config: AppConfig): SyncContext["thoughtsByPath"] {
+function loadThoughtsByPath(config: AppConfig): SyncContext {
   const byPath = new Map<string, ReturnType<typeof getThought>>();
   try {
     // One pass over the vault. Asking for thoughts individually re-reads every
@@ -318,8 +336,9 @@ function loadThoughtsByPath(config: AppConfig): SyncContext["thoughtsByPath"] {
     }
   } catch {
     // No vault on this machine; the map stays empty and no thought is indexed.
+    return { thoughtsByPath: byPath, thoughtsReadable: false };
   }
-  return byPath;
+  return { thoughtsByPath: byPath, thoughtsReadable: true };
 }
 
 /** Every document a given source file currently contributes. */
@@ -386,17 +405,31 @@ function documentsForFile(
   }));
 }
 
-/** Source files worth indexing, paired with the kind each produces. */
+/**
+ * Source files worth indexing, paired with the kind each produces, plus the
+ * sources that could not be read at all.
+ *
+ * The second half is the load-bearing one. A source this machine cannot read
+ * contributes zero files, which is byte-for-byte what a source that has been
+ * emptied looks like - and the sync's removal sweep treats a file it did not see
+ * as a file that was deleted. One mistyped path would therefore purge a whole
+ * pillar out of the index and report a clean run. Naming the unread sources lets
+ * the caller hold their documents rather than infer a deletion from silence.
+ */
 function indexableFiles(
   config: AppConfig,
   context: SyncContext,
-): Array<{ kind: IndexedKind; filePath: string; mtimeMs: number; sizeBytes: number }> {
+): {
+  files: Array<{ kind: IndexedKind; filePath: string; mtimeMs: number; sizeBytes: number }>;
+  unreadable: UnreadableSource[];
+} {
   const out: Array<{
     kind: IndexedKind;
     filePath: string;
     mtimeMs: number;
     sizeBytes: number;
   }> = [];
+  const unreadable: UnreadableSource[] = [];
 
   const addFile = (kind: IndexedKind, filePath: string): void => {
     try {
@@ -409,7 +442,8 @@ function indexableFiles(
   };
 
   // A missing source is not an error here. The index spans several pillars and
-  // must build from whichever ones this machine actually has.
+  // must build from whichever ones this machine actually has - but it is recorded,
+  // because contributing no files and having no files are different claims.
   try {
     for (const file of listTranscriptFiles(config.transcriptsDir)) {
       out.push({
@@ -420,22 +454,29 @@ function indexableFiles(
       });
     }
   } catch {
-    // No transcripts on this machine.
+    unreadable.push({ kind: "session", path: config.transcriptsDir });
   }
 
   for (const thoughtPath of context.thoughtsByPath.keys()) {
     addFile("thought", thoughtPath);
   }
+  if (!context.thoughtsReadable) {
+    unreadable.push({ kind: "thought", path: config.engramVaultPath });
+  }
 
   try {
     for (const wrap of listWraps(config.wrapsDir)) addFile("wrap", wrap.path);
   } catch {
-    // No wraps on this machine.
+    unreadable.push({ kind: "wrap", path: config.wrapsDir });
   }
 
-  if (fs.existsSync(config.frictionLogPath)) addFile("friction", config.frictionLogPath);
+  if (fs.existsSync(config.frictionLogPath)) {
+    addFile("friction", config.frictionLogPath);
+  } else {
+    unreadable.push({ kind: "friction", path: config.frictionLogPath });
+  }
 
-  return out;
+  return { files: out, unreadable };
 }
 
 /**
@@ -448,9 +489,23 @@ function indexableFiles(
  */
 export function syncIndex(db: Database.Database, config: AppConfig): SyncReport {
   const startedAt = Date.now();
-  const context: SyncContext = { thoughtsByPath: loadThoughtsByPath(config) };
-  const files = indexableFiles(config, context);
+  const context = loadThoughtsByPath(config);
+  const { files, unreadable } = indexableFiles(config, context);
   const seen = new Set(files.map((file) => file.filePath));
+
+  // Files belonging to a source this run could not read. They are absent from
+  // `seen` for a reason that is not deletion, so the removal sweep must not touch
+  // them: one wrong path in config.json would otherwise empty a whole pillar out
+  // of the index and report a successful sync while doing it.
+  const held = new Set<string>();
+  const selectFilesOfKind = db.prepare(
+    "SELECT DISTINCT file_path FROM documents WHERE kind = ?",
+  );
+  for (const source of unreadable) {
+    for (const row of selectFilesOfKind.all(source.kind) as Array<{ file_path: string }>) {
+      held.add(row.file_path);
+    }
+  }
 
   const knownRows = db
     .prepare("SELECT file_path, mtime_ms, size_bytes FROM indexed_files")
@@ -533,7 +588,7 @@ export function syncIndex(db: Database.Database, config: AppConfig): SyncReport 
     }
 
     for (const filePath of known.keys()) {
-      if (seen.has(filePath)) continue;
+      if (seen.has(filePath) || held.has(filePath)) continue;
       purgeFile(filePath);
       deleteFile.run(filePath);
       filesRemoved++;
@@ -554,6 +609,7 @@ export function syncIndex(db: Database.Database, config: AppConfig): SyncReport 
     documents,
     rebuilt: knownRows.length === 0,
     elapsedMs: Date.now() - startedAt,
+    sourcesUnreadable: unreadable,
   };
 }
 

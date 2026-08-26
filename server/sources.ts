@@ -28,12 +28,30 @@ type Probe = {
   paths: string[];
 };
 
+/**
+ * The sources the derived index reads.
+ *
+ * One list, because three places need the same answer and a copy of it in each
+ * would drift: the probe below, the guard on the search routes, and the gate's
+ * decision about whether the Search route should render its first-run panel. The
+ * pillar is answerable while any one of these exists, which is why an "or" over
+ * the whole list is the condition rather than transcripts alone.
+ */
+export function indexSourcePaths(config: AppConfig): string[] {
+  return [
+    config.transcriptsDir,
+    config.engramVaultPath,
+    config.wrapsDir,
+    config.frictionLogPath,
+  ];
+}
+
 function probes(config: AppConfig): Probe[] {
   return [
     // The index spans several pillars, so it is usable as long as at least one of
-    // them exists. Transcripts stand in for that here because they are the source
-    // every Claude Code install has.
-    { key: "search", label: "search index", tier: "universal", kind: "dir", paths: [config.transcriptsDir] },
+    // them exists - a mix of directories and one file, so this is an existence
+    // test over the set rather than a check on any one path's kind.
+    { key: "search", label: "search index", tier: "universal", kind: "any-dir", paths: indexSourcePaths(config) },
     { key: "sessions", label: "session transcripts", tier: "universal", kind: "dir", paths: [config.transcriptsDir] },
     { key: "hooks", label: "hook records", tier: "universal", kind: "dir", paths: [config.transcriptsDir] },
     { key: "live", label: "live session registry", tier: "universal", kind: "dir", paths: [config.liveSessionsDir] },

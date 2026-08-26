@@ -43,7 +43,13 @@ type CostTotals = {
 type BlocksResponse = {
   blocks: UsageBlock[];
   totals: CostTotals;
-  pricing: { asOf: string; models: string[] };
+  pricing: {
+    asOf: string;
+    ageDays: number;
+    shelfLifeDays: number;
+    stale: boolean;
+    models: string[];
+  };
   note: string;
 };
 
@@ -356,11 +362,16 @@ export function UsageView() {
 
           <p className="row-meta" style={{ marginTop: 14 }}>
             Prices come from a table vendored into this repo, last verified{" "}
-            <strong>{blocks.pricing.asOf}</strong>, covering{" "}
-            {blocks.pricing.models.length} models. Nothing is fetched at runtime, so
-            the table can go stale without any error - which is why the date is on
-            screen. A window containing a model the table does not price shows no
-            cost rather than a partial one.
+            <strong>{blocks.pricing.asOf}</strong> -{" "}
+            <strong>{blocks.pricing.ageDays} days ago</strong>, against a{" "}
+            {blocks.pricing.shelfLifeDays}-day shelf life
+            {blocks.pricing.stale
+              ? ", so it is past due for a re-read of the vendor's published pricing"
+              : ""}
+            . It covers {blocks.pricing.models.length} models. Nothing is fetched at
+            runtime, so the table can go stale without any error - which is why the
+            date and its age are on screen. A window containing a model the table
+            does not price shows no cost rather than a partial one.
           </p>
         </>
       )}

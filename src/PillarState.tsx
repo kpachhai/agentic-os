@@ -8,6 +8,11 @@ import { SourceMissing } from "./api";
  * identifier the client has to work with.
  */
 const GUIDANCE: Record<string, { shows: string; configKey: string; how: string }> = {
+  "search index": {
+    shows: "one query across your sessions, memory notes, friction log and wraps",
+    configKey: "transcriptsDir",
+    how: "Built from whichever of those four sources this machine has, so any one of them is enough. The index itself is a cache under the install and is rebuilt on demand; what is absent here are the sources behind it.",
+  },
   "memory notes": {
     shows: "the link structure between your memory notes, and the faults in it",
     configKey: "transcriptsDir",

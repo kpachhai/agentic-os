@@ -31,20 +31,31 @@ can answer the question.
 
 ```bash
 npm ci && npm run build && npm start     # -> http://127.0.0.1:4317
-npm run gate                             # the acceptance check - 17 checks
+npm run doctor                           # which sources this machine has
+npm run gate                             # the acceptance check
 ```
 
 **`npm run gate` is the mechanical definition of "working."** It runs install,
 typecheck, build, vitest, server boot, one smoke per pillar against real data,
-launcher wiring, a headless Playwright render over every route (skipping
-routes whose data source is missing), an off-machine bind refusal, and a proof
-that the memoized heavy reads answer the same thing cold and warm. Checks
-are numbered 1-13 with the vitest suite as 3b and later additions as 10b, 10c and
-10d, so check numbers referenced elsewhere stay stable. A check the run never
+launcher wiring, a headless Playwright render over every route (a route whose
+source is missing must render the not-configured panel, not be skipped), an
+off-machine bind refusal, and a proof that the memoized heavy reads answer the
+same thing cold and warm. The roster is declared at the top of `scripts/gate.mjs`
+and every run prints all of it, so the number of checks is read off the run rather
+than restated in prose here or in the README. Checks are numbered 1-13 with the
+vitest suite as 3b and later additions as 10b, 10c and 10d, so check numbers
+referenced elsewhere stay stable. A check the run never
 reached reports `SKIP (not reached)` rather than vanishing from the summary,
 because absence reads as a pass. Green gate = working install. Do not claim a change
 works until the gate is green; it catches things the unit tests do not (the
 compact-axis regression was found by visual verification, not by tests).
+
+`.github/workflows/ci.yml` runs `npm ci`, `npm run typecheck`, `npm run build` and
+`npm test` on every push and pull request. It is the data-independent half of the
+gate and nothing more: it cannot boot a server, drive Chromium, or read any source
+the operator owns, so a green run there is not an acceptance claim and never
+substitutes for a local gate run. Its own header comment says why each omitted
+check is omitted; keep that comment true if you change either file.
 
 A pillar whose data source is absent reports `SKIPPED (source missing)`. That is
 a legitimate green - it is loud on purpose. Never convert a skip into a silent
@@ -55,9 +66,21 @@ list instead - an empty pillar reads as "no data", which is a different claim.
 
 ## Invariants - do not break these
 
+- **Never fire a real launch to check that the launcher works.** Use the hermetic
+  smoke, `POST /api/launch {"smoke": true}`, which is what gate check 8 does. A
+  real launch spawns the operator's own authenticated `claude -p` and is billed to
+  them, with `Edit`, `Write` and `Bash` under `acceptEdits` in the shipped
+  defaults. The shipped `maxBudgetUsd` is `null` and the CLI exposes no turn cap,
+  so `timeoutSeconds` - 600 by default - is the only ceiling on what one launch
+  can spend. A short prompt closes nothing: it is still a billed launch, and the
+  child decides how long it runs, not the prompt.
 - **Loopback bind is the security boundary.** The server binds `127.0.0.1` only.
   Never widen it, and never add a config key that could. Gate check 12 asserts
-  an off-machine connection is refused.
+  an off-machine connection is refused. Known gate gap: that assertion needs a
+  non-loopback address to connect from, so on a machine that has none - offline,
+  or a container with only `lo` - check 12 reports SKIP and the bind is untested
+  by the gate. It reported PASS in that state until the skip was added, which is
+  a check printing what a passing check prints while observing nothing.
 - **The `/api/*` Host + Origin guard stays.** It defends against DNS rebinding
   and browser CSRF. Both have regression tests.
 - **Every per-launch override may only narrow, never widen,** the configured
@@ -123,11 +146,18 @@ list instead - an empty pillar reads as "no data", which is a different claim.
   contributes its frontmatter identity, never its body: counting bodies overstates
   the figure by more than an order of magnitude. A bucket the module cannot prove
   always loads is reported apart from the total rather than folded into it.
-- **The price table is vendored and its as-of date is on screen.** Nothing is
+- **The price table is vendored and its age is on screen.** Nothing is
   fetched at runtime, so `PRICING_AS_OF` in `server/pricing.ts` is the only thing
-  standing between a stale table and a wrong number. An unpriced model makes the
-  whole window report `null`, never a partial figure - a cost that silently omits
-  one model is worse than no cost.
+  standing between a stale table and a wrong number. The date alone left the
+  arithmetic to the reader, so `pricingFreshness()` reports the age in days beside
+  it, in the Usage view and in `npm run doctor`, and `PRICING_SHELF_LIFE_DAYS` is
+  the point past which the line asks for a re-read. That threshold is a commitment
+  rather than a measurement - nothing here can observe a vendor changing a price -
+  so the age is printed whatever it is set to, and a date later than today is
+  reported as a mistyped constant rather than as a fresh table. When you re-verify,
+  change the rates and `PRICING_AS_OF` in the same commit. An unpriced model makes
+  the whole window report `null`, never a partial figure - a cost that silently
+  omits one model is worse than no cost.
 - **`~/.claude/history.jsonl` is the most sensitive file here.** It is every
   prompt verbatim, including anything ever pasted into one. Read-only, excerpted,
   and never captured into a fixture, a test, or gate output. `historyStats`
@@ -179,6 +209,16 @@ list instead - an empty pillar reads as "no data", which is a different claim.
   file and requiring identical answers, and the promise has to hold *while the
   server is running*: SQLite refuses writes on an unlinked database, so the index
   handle reopens itself rather than turning a delete into a 500.
+- **An unread source is not an emptied one.** The sync's removal sweep treats "not
+  seen this run" as "deleted", and a source that cannot be opened contributes
+  exactly as many files as one that has been emptied: none. So `syncIndex` holds
+  the documents of every source it could not read and names it in
+  `sourcesUnreadable`. Measured against a copy of the real index, one mistyped
+  vault path otherwise removed 891 files and all 891 memory documents at HTTP 200,
+  while the Memory pillar answered 503 for the same path in the same run. The
+  search routes carry the matching guard: with none of the four index sources
+  present they answer `503 source missing` like every other pillar, rather than
+  serving hits out of a cache whose sources have all moved.
 - **Reading a whole collection asks for it once.** The vault reader re-reads every
   file per lookup by design, so an edit on disk is always visible. That is right
   for one lookup and quadratic for a caller that wants all of them: entry-by-entry
@@ -270,7 +310,12 @@ list instead - an empty pillar reads as "no data", which is a different claim.
 
 - TypeScript strict; `npm run typecheck` must pass clean.
 - `scripts/gate.mjs` has **zero dependencies** by design - check 1 wipes
-  `node_modules`, so the gate must survive that. Keep it plain Node.
+  `node_modules`, so the gate must survive that. Keep it plain Node. The price of
+  that is three copies of the source-path defaults - `server/config.ts`,
+  `scripts/gate.mjs`, `scripts/doctor.mjs` - and one had already drifted while
+  three comments asked a human to keep them in step.
+  `tests/script-config-parity.test.ts` extracts all three by text and compares
+  them, so a drift reddens rather than being noticed later.
 - Machine-specific paths belong in `config.json` (gitignored), never in code.
   `config.example.json` uses `<placeholder>` segments deliberately; keep it
   generic. Defaults derive from `$HOME` via `os.homedir()` - never hardcode an

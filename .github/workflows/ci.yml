@@ -1,0 +1,58 @@
+# The data-independent half of `npm run gate`, run on every push.
+#
+# WHAT THIS DELIBERATELY DOES NOT RUN, AND WHY. `npm run gate` is this repo's
+# acceptance check and it stays a maintainer command. Its per-pillar checks read
+# the operator's own transcripts, memory vault, friction log and token-analyzer
+# database; a runner has none of those, so they would report SKIPPED and certify
+# nothing, and the index-disposability check would skip for the same reason
+# rather than proving anything. The launcher smoke spawns the configured
+# `smokeCommand`, which defaults to `claude --version` and needs a `claude` binary
+# no runner has. What is left needs a booted server on loopback, a headless
+# Chromium, or a real non-loopback interface. Running all of it here would turn a
+# job of a couple of minutes into a much longer one that still could not prove
+# what the maintainer's local run proves.
+#
+# No count of those checks is given here on purpose: the roster lives at the top
+# of scripts/gate.mjs and a number copied into this comment would go stale the
+# first time a check is added.
+#
+# The compensating control is that the gate is where the acceptance claim
+# actually lives: it runs against real data before a change is called done, and
+# CLAUDE.md says so. This job is the layer underneath it - the checks that need
+# no data at all, run on every push so a broken tree cannot sit unnoticed
+# between gate runs.
+#
+# A green run here therefore means: it installs, it typechecks, it builds, and
+# every suite that does not need the operator's own files passes. It does not
+# mean the gate is green.
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+
+      # `npm ci` rather than `npm install`: it fails when package-lock.json and
+      # package.json disagree, which is the only thing verifying the lock file.
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      - run: npm run build
+
+      # The suites that read the operator's real sources skip themselves here,
+      # loudly - vitest prints the skipped count beside the passing one, so a
+      # suite that silently narrowed is visible in the log rather than hidden
+      # behind a bare "passed". A run that collects no tests at all exits
+      # non-zero, so a vanished tests/ directory goes red rather than green.
+      - run: npm test

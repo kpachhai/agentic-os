@@ -142,9 +142,11 @@ function expandHome(p) {
 }
 
 // The fallback paths below duplicate defaults() in server/config.ts, because
-// this script stays dependency-free and cannot import a TypeScript module.
-// Keep the two in sync: a stale copy here mis-reports which sources exist and
-// silently skips a check that should have run.
+// this script stays dependency-free and cannot import a TypeScript module. The
+// same duplication exists in scripts/doctor.mjs, so there are three copies of
+// one list: a stale one here mis-reports which sources exist and silently skips
+// a check that should have run. Keeping them in step is no longer a convention -
+// tests/script-config-parity.test.ts compares all three and reddens on a drift.
 function loadGateConfig() {
   const file = process.env.CONFIG_PATH ?? path.join(ROOT, "config.json");
   let raw = {};
@@ -163,6 +165,7 @@ function loadGateConfig() {
     tasksDir: expandHome(raw.tasksDir ?? "~/.claude/tasks"),
     claudeSettingsPath: expandHome(raw.claudeSettingsPath ?? "~/.claude/settings.json"),
     historyPath: expandHome(raw.historyPath ?? "~/.claude/history.jsonl"),
+    pacingLogPath: expandHome(raw.pacingLogPath ?? "~/.claude/pacing-log.jsonl"),
     workflowsDir: expandHome(raw.workflowsDir ?? "~/.claude/workflows"),
     fileHistoryDir: expandHome(raw.fileHistoryDir ?? "~/.claude/file-history"),
     usageDataDir: expandHome(raw.usageDataDir ?? "~/.claude/usage-data"),
@@ -203,7 +206,17 @@ async function main() {
     // Hook records live inside the transcripts, so the two share one source.
     hooks: fs.existsSync(config.transcriptsDir),
     tasks: fs.existsSync(config.tasksDir),
-    search: fs.existsSync(config.transcriptsDir),
+    // The index spans four sources and is answerable while any one of them
+    // exists, which is the condition indexSourcePaths() applies in
+    // server/sources.ts. The two have to agree: if this said "absent" where the
+    // server says "present", check 11 would demand a first-run panel the server
+    // will never render.
+    search: [
+      config.transcriptsDir,
+      config.engramVaultPath,
+      config.wrapsDir,
+      config.frictionLogPath,
+    ].some((p) => fs.existsSync(p)),
     config: fs.existsSync(config.claudeSettingsPath),
     history: fs.existsSync(config.historyPath),
     // The memory-note graph, usage blocks and orchestration scripts all live under
@@ -219,12 +232,18 @@ async function main() {
     skillTrend: fs.existsSync(config.transcriptsDir),
     instructions: fs.existsSync(config.claudeMdPath),
     live: fs.existsSync(config.liveSessionsDir),
-    // Outcomes and the friction gap both read the /insights store; the gap also
-    // needs the friction log, since it is a comparison between the two.
+    // Outcomes reads the /insights store, which one command writes in a single
+    // pass and never refreshes.
     usageData: fs.existsSync(config.usageDataDir),
     disk: fs.existsSync(config.claudeHome),
-    frictionGap: fs.existsSync(config.usageDataDir) && fs.existsSync(config.frictionLogPath),
+    // Absent by default: rate-limit figures exist only in the payload Claude Code
+    // hands its statusline command, so capturing them needs a hook the operator
+    // installs themselves.
+    pacing: fs.existsSync(config.pacingLogPath),
   };
+  // Every key here names a source the server also probes, and check 10c requires
+  // the two sets to match. Anything that is a combination of sources rather than
+  // a source of its own is computed where it is needed, so this stays comparable.
   console.log("[gate] precondition probe:", JSON.stringify(sources));
 
   // ---- 1: npm ci ----
@@ -294,11 +313,34 @@ async function main() {
     record("3b", "vitest per-pillar smokes", "FAIL", detail);
     return bail(summarize());
   }
+  // The size of the corpus, not only the verdict. Six suites gate themselves on
+  // the operator's real sources, so a moved vault or wraps directory turns them
+  // off - and this line was identical whether 838 tests ran or 816 did. The
+  // parse is required rather than defaulted: falling back to zero would turn a
+  // reworded vitest summary into a silent green, which is the defect this check
+  // exists to notice in the pillars.
+  const vtCounts = vt.out.match(/Tests\s+(\d+) passed(?:\s*\|\s*(\d+) skipped)?/);
+  if (!vtCounts) {
+    record(
+      "3b",
+      "vitest per-pillar smokes",
+      "FAIL",
+      "the suite exited 0 but its own summary line could not be read, so the " +
+        "number of tests that ran is unknown; last output:\n" +
+        vt.out.trim().slice(-600),
+    );
+    return bail(summarize());
+  }
   record(
     "3b",
     "vitest per-pillar smokes",
     "PASS",
-    workerRetry ? `${loadNote}; re-run after a worker failed to start` : "",
+    [
+      `tests=${vtCounts[1]} skipped=${vtCounts[2] ?? 0}`,
+      workerRetry ? `${loadNote}; re-run after a worker failed to start` : "",
+    ]
+      .filter(Boolean)
+      .join("; "),
   );
 
   // ---- 4: boot on an ephemeral port + health poll ----
@@ -606,23 +648,43 @@ async function main() {
   }
 
   // ---- 10c: source availability report drives the shell's navigation ----
+  // Compared against the probe at the top of this run rather than against a
+  // floor. The floor was "at least eight rows" while the report carried
+  // twenty-three, so fifteen probes could have disappeared - the navigation
+  // quietly no longer dimming them - with this check still passing. The two
+  // lists name the same set of sources by construction, so requiring them to be
+  // equal makes each the other's verifier: a probe added on either side reddens
+  // this until both know about it. A report with no rows at all fails outright,
+  // because two empty sets match and would certify nothing.
   try {
     const rows = await fetchJson(`${base}/api/sources`);
-    const ok =
+    const shaped =
       Array.isArray(rows) &&
-      rows.length >= 8 &&
+      rows.length > 0 &&
       rows.every(
         (s) =>
           typeof s.key === "string" &&
           typeof s.present === "boolean" &&
           (s.tier === "universal" || s.tier === "personal"),
       );
-    const present = rows.filter((s) => s.present).length;
+    const reported = new Set(shaped ? rows.map((s) => s.key) : []);
+    const probed = new Set(Object.keys(sources));
+    const unreported = [...probed].filter((k) => !reported.has(k));
+    const unprobed = [...reported].filter((k) => !probed.has(k));
+    const ok = shaped && unreported.length === 0 && unprobed.length === 0;
+    const present = shaped ? rows.filter((s) => s.present).length : 0;
     record(
       "10c",
       "source availability report",
       ok ? "PASS" : "FAIL",
-      `${present}/${rows.length} present`,
+      [
+        `${present}/${reported.size} present, ${probed.size} probed by this script`,
+        unreported.length ? `probed here but not reported: ${unreported.join(", ")}` : "",
+        unprobed.length ? `reported but not probed here: ${unprobed.join(", ")}` : "",
+        shaped ? "" : "the report is empty or malformed",
+      ]
+        .filter(Boolean)
+        .join("; "),
     );
     if (!ok) return bail(summarize());
   } catch (err) {
@@ -635,33 +697,48 @@ async function main() {
   // loses nothing. That claim is worth a check rather than a comment: build it,
   // record what it answers, delete the file, rebuild, and require the identical
   // answer. A drift here means the cache has become a source.
-  try {
-    const sync = await postJson(`${base}/api/index/sync`);
-    const probe = "loopback";
-    const before = await fetchJson(`${base}/api/search?q=${probe}&limit=10`);
-    const key = (r) => r.hits.map((h) => `${h.kind}:${h.ref}:${h.locator}`).join("|");
-
-    fs.rmSync(config.indexPath, { force: true });
-    const indexGone = !fs.existsSync(config.indexPath);
-
-    const resync = await postJson(`${base}/api/index/sync`);
-    const after = await fetchJson(`${base}/api/search?q=${probe}&limit=10`);
-
-    const ok =
-      indexGone &&
-      sync.documents > 0 &&
-      resync.documents === sync.documents &&
-      key(after) === key(before);
+  //
+  // It needs something to index. With none of the four index sources on this
+  // machine the sync answers 503 and there are no documents to compare, which is
+  // a missing source rather than a broken cache - so it is reported as a skip,
+  // the way every other pillar's absence is, rather than as the hard failure it
+  // looked like on a fresh clone.
+  if (!sources.search) {
     record(
       "10d",
       "derived index is disposable",
-      ok ? "PASS" : "FAIL",
-      `docs=${sync.documents} rebuilt=${resync.documents} hits=${before.hits.length} identical=${key(after) === key(before)}`,
+      "SKIP",
+      "source missing (nothing to index)",
     );
-    if (!ok) return bail(summarize());
-  } catch (err) {
-    record("10d", "derived index is disposable", "FAIL", String(err));
-    return bail(summarize());
+  } else {
+    try {
+      const sync = await postJson(`${base}/api/index/sync`);
+      const probe = "loopback";
+      const before = await fetchJson(`${base}/api/search?q=${probe}&limit=10`);
+      const key = (r) => r.hits.map((h) => `${h.kind}:${h.ref}:${h.locator}`).join("|");
+
+      fs.rmSync(config.indexPath, { force: true });
+      const indexGone = !fs.existsSync(config.indexPath);
+
+      const resync = await postJson(`${base}/api/index/sync`);
+      const after = await fetchJson(`${base}/api/search?q=${probe}&limit=10`);
+
+      const ok =
+        indexGone &&
+        sync.documents > 0 &&
+        resync.documents === sync.documents &&
+        key(after) === key(before);
+      record(
+        "10d",
+        "derived index is disposable",
+        ok ? "PASS" : "FAIL",
+        `docs=${sync.documents} rebuilt=${resync.documents} hits=${before.hits.length} identical=${key(after) === key(before)}`,
+      );
+      if (!ok) return bail(summarize());
+    } catch (err) {
+      record("10d", "derived index is disposable", "FAIL", String(err));
+      return bail(summarize());
+    }
   }
 
   // ---- 11: Playwright UI render smoke over every pillar route ----
@@ -682,6 +759,11 @@ async function main() {
     ["skills", "#/skills"],
     ["hooks", "#/hooks"],
     ["tasks", "#/tasks"],
+    // The run diff reads the transcript tree, so it shares the sessions source.
+    // Its absence from this list meant the smoke walked it asking for real data
+    // on a machine that has none, and the first-run screen it was meant to prove
+    // failed with a selector timeout instead.
+    ["sessions", "#/diff"],
     ["config", "#/config"],
     ["history", "#/history"],
     ["blocks", "#/usage"],
@@ -750,12 +832,27 @@ async function main() {
       }
     }
     if (!h) throw new Error("health unreachable after retries");
-    let loopbackOk = h.host === "127.0.0.1" || h.host === "::1";
-    let lanDetail = "no non-loopback IPv4 found (bind-echo check only)";
+    // The only real observation here is the refused connection from an address
+    // that is not loopback. The server's own /api/health echoes the constant it
+    // bound with, so comparing that against "127.0.0.1" compares a literal with
+    // itself and would pass on a server bound to the world. On a machine with no
+    // non-loopback IPv4 - an offline laptop, a container with only lo - there is
+    // nothing to observe, and this reports a skip rather than printing what a
+    // passing check prints.
     const lanIp = Object.values(os.networkInterfaces())
       .flat()
       .find((i) => i && i.family === "IPv4" && !i.internal)?.address;
-    if (lanIp) {
+    if (!lanIp) {
+      record(
+        12,
+        "localhost-only bind",
+        "SKIP",
+        "no non-loopback IPv4 on this machine, so an off-machine connection " +
+          "could not be attempted; the bind was not tested",
+      );
+    } else {
+      let loopbackOk = true;
+      let lanDetail = "";
       try {
         await fetch(`http://${lanIp}:${port}/api/health`, {
           signal: AbortSignal.timeout(1500),
@@ -765,9 +862,9 @@ async function main() {
       } catch {
         lanDetail = `connection to ${lanIp}:${port} refused, as required`;
       }
+      record(12, "localhost-only bind", loopbackOk ? "PASS" : "FAIL", lanDetail);
+      if (!loopbackOk) return bail(summarize());
     }
-    record(12, "localhost-only bind", loopbackOk ? "PASS" : "FAIL", lanDetail);
-    if (!loopbackOk) return bail(summarize());
   } catch (err) {
     record(12, "localhost-only bind", "FAIL", String(err));
     return bail(summarize());

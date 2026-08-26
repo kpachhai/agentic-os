@@ -50,7 +50,7 @@ import {
   usageBlocks,
   usageTotals,
   pricedModels,
-  PRICING_AS_OF,
+  pricingFreshness,
   type BlockInput,
 } from "./pricing.js";
 import { readWorkflowScript, workflowInventory } from "./workflows.js";
@@ -60,7 +60,7 @@ import { diffRuns } from "./diff.js";
 import { getSession, listSessions, sessionTotals } from "./sessions.js";
 import { listSkills } from "./skills.js";
 import { readSkillUsage } from "./skill-usage.js";
-import { sourceStatuses } from "./sources.js";
+import { indexSourcePaths, sourceStatuses } from "./sources.js";
 import { listAbandonedTasks, listSessionTasks } from "./tasks.js";
 import { getWrap, listWraps } from "./wraps.js";
 
@@ -618,7 +618,10 @@ export function createApp(config: AppConfig) {
       // Per-model and per-token-kind cost over everything read, which totalCost
       // was already computing per block and the payload was discarding.
       totals: usageTotals(entries),
-      pricing: { asOf: PRICING_AS_OF, models: pricedModels() },
+      // The age travels with the date because the date alone does not answer the
+      // question a reader has: a table refreshed only by a deliberate commit is
+      // as good as how long ago that commit was.
+      pricing: { ...pricingFreshness(), models: pricedModels() },
       note:
         "Five hours is the window a subscription's own limits are expressed in, " +
         "which is why usage is grouped this way rather than by calendar day. " +
@@ -635,15 +638,31 @@ export function createApp(config: AppConfig) {
   // is what makes "you may delete this at any time" true while the server runs.
   const index = createIndexHandle(config.indexPath);
 
-  app.get("/api/index/stats", (c) =>
-    c.json(index.run((db) => indexStats(db, config.indexPath))),
-  );
+  // The index outlives its sources, which is what makes this guard necessary
+  // rather than tidy: with every source moved away, the cache went on answering
+  // 200 with real excerpts and a document count for files that were not there,
+  // while every other pillar on the same machine correctly said 503. A stale hit
+  // presented as current is the one failure worse than an empty answer. Any one
+  // source is enough, so a machine that has transcripts but no vault still
+  // searches.
+  const requireIndexSource = (): void => {
+    const paths = indexSourcePaths(config);
+    if (paths.some((sourcePath) => fs.existsSync(sourcePath))) return;
+    throw new SourceMissingError("search index", paths.join(", "));
+  };
 
-  app.post("/api/index/sync", (c) =>
-    c.json(index.run((db) => syncIndex(db, config))),
-  );
+  app.get("/api/index/stats", (c) => {
+    requireIndexSource();
+    return c.json(index.run((db) => indexStats(db, config.indexPath)));
+  });
+
+  app.post("/api/index/sync", (c) => {
+    requireIndexSource();
+    return c.json(index.run((db) => syncIndex(db, config)));
+  });
 
   app.get("/api/search", (c) => {
+    requireIndexSource();
     const query = c.req.query("q") ?? "";
     if (!query.trim()) return c.json({ query, hits: [], note: "empty query" });
     const kindRaw = c.req.query("kind");

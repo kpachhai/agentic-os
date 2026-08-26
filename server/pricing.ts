@@ -21,6 +21,53 @@
 /** Date the rates below were last verified against published pricing. */
 export const PRICING_AS_OF = "2026-06-24";
 
+/**
+ * How long a verification is treated as current before it is worth re-reading.
+ *
+ * This is a commitment rather than a measurement: nothing here can observe a
+ * vendor changing a list price, so the number is the longest the maintainer
+ * accepts having a possibly-wrong cost on screen before opening the pricing page
+ * again. Ninety days is a quarter, which is the cadence a manual re-read actually
+ * gets done at; a shorter one produces a warning that gets ignored, which is
+ * worse than none. The age itself is reported on every run whatever this is set
+ * to, so the figure a reader sees does not depend on this number being right.
+ */
+export const PRICING_SHELF_LIFE_DAYS = 90;
+
+export type PricingFreshness = {
+  asOf: string;
+  /** Whole days between the verification date and now; negative means the future. */
+  ageDays: number;
+  shelfLifeDays: number;
+  /** Past the shelf life: advisory, and the reason to re-read the vendor's page. */
+  stale: boolean;
+  /**
+   * A verification date later than today. Unlike staleness this is not a matter
+   * of degree - it is well-formed and impossible, so it means the constant was
+   * mistyped rather than that the table is old.
+   */
+  fromFuture: boolean;
+};
+
+/**
+ * How old the vendored table is, in the terms a reader can act on.
+ *
+ * `now` is a parameter so this is testable without the answer depending on the
+ * day the suite runs.
+ */
+export function pricingFreshness(now: Date = new Date()): PricingFreshness {
+  const MS_PER_DAY = 86_400_000;
+  const verifiedAt = Date.parse(`${PRICING_AS_OF}T00:00:00Z`);
+  const ageDays = Math.floor((now.getTime() - verifiedAt) / MS_PER_DAY);
+  return {
+    asOf: PRICING_AS_OF,
+    ageDays,
+    shelfLifeDays: PRICING_SHELF_LIFE_DAYS,
+    stale: ageDays > PRICING_SHELF_LIFE_DAYS,
+    fromFuture: ageDays < 0,
+  };
+}
+
 export type ModelRate = {
   /** US dollars per million input tokens. */
   inputPerMillion: number;

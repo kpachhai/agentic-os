@@ -21,7 +21,7 @@
   "wrapsDir": "~/.claude/projects/<your-encoded-project-dir>/memory",
   "ctaDbPath": "~/.claude/plugins/data/claude-token-analyzer-claude-token-analyzer/token-analyzer.db",
   "frictionResolveWindowDays": 14,
-  "pacingLogPath": "~/.claude/rate-limit-log.jsonl",
+  "pacingLogPath": "~/.claude/pacing-log.jsonl",
 
   "digest": {
     "localModelUrl": "http://127.0.0.1:8080",
