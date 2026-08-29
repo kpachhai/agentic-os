@@ -378,3 +378,7 @@ documents, planning-stage labels, or letter-coded feature names. If a rule came
 from somewhere else, restate the reason rather than pointing at the source.
 References to things that live *in* this repo (`gate check 8`) are fine, since
 a reader can actually go read them.
+
+## Refactoring Guardrails
+
+@.claudecode.md
