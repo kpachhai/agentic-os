@@ -260,8 +260,17 @@ export function readWorkflowScript(
   scriptPath: string,
 ): { script: WorkflowScript; source: string } | null {
   // The path comes from a client, so it is only served when it is one this
-  // inventory produced. Comparing against the known set is stricter than a
-  // prefix check and cannot be defeated by traversal or a symlink.
+  // inventory produced. Membership of that set is the whole boundary, and it is
+  // stricter than a prefix check: a traversal path, and a real file sitting in
+  // the directory that the inventory skipped, are both refused for the same
+  // reason - they are not in the set.
+  //
+  // It does NOT resolve symlinks. A `*.js` symlink inside the workflows
+  // directory is enumerated like any other script and its target is read, so
+  // containment here is worth exactly as much as write access to that
+  // directory. No API client can create one; a local writer who could already
+  // has the filesystem. Said plainly because this comment used to claim symlinks
+  // were covered, and tests/workflows.test.ts now pins the real behaviour.
   const inventory = workflowInventory(transcriptsDir, workflowsDir);
   const script = inventory.scripts.find((entry) => entry.path === scriptPath);
   if (!script) return null;

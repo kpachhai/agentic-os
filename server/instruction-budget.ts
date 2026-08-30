@@ -354,6 +354,23 @@ function isDirectory(dirPath: string): boolean {
   }
 }
 
+/**
+ * A path's canonical identity, falling back to a resolved path when it cannot be
+ * canonicalised - a broken link, or a parent the process cannot traverse.
+ *
+ * Two callers depend on this and must agree: source dedupe, which decides
+ * whether a file has already been counted, and the skill walk's cycle guard.
+ * Were they to disagree, a symlinked file would count twice in one and loop
+ * forever in the other, so they share one definition rather than two copies.
+ */
+function canonicalPath(filePath: string): string {
+  try {
+    return fs.realpathSync(filePath);
+  } catch {
+    return path.resolve(filePath);
+  }
+}
+
 function bump(counts: Map<string, number>, reason: string, by = 1): void {
   if (by <= 0) return;
   counts.set(reason, (counts.get(reason) ?? 0) + by);
@@ -773,11 +790,7 @@ class SourceCollector {
   readonly sources: InstructionSource[] = [];
 
   private identity(filePath: string): string {
-    try {
-      return fs.realpathSync(filePath);
-    } catch {
-      return path.resolve(filePath);
-    }
+    return canonicalPath(filePath);
   }
 
   /**
@@ -1125,12 +1138,7 @@ function skillFilesUnder(
   state.dirsScanned += 1;
   const out: string[] = [];
   for (const child of children) {
-    let real: string;
-    try {
-      real = fs.realpathSync(child);
-    } catch {
-      real = path.resolve(child);
-    }
+    const real = canonicalPath(child);
     // A link back up the tree would otherwise walk forever.
     if (state.visited.has(real)) {
       bump(state.skips, "directory-already-visited");
