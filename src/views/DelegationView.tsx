@@ -5,7 +5,7 @@ import { FailureState, RailLegend, Skeleton } from "../PillarState";
 import { useSorted, useSortState } from "../sortable";
 
 import type { Caveat, DelegationMonth, DelegationReport } from "../delegation-types";
-import { count, day, shortProject, span, summarize } from "../delegation-report";
+import { buildCaveats, count, day, shortProject, span, summarize } from "../delegation-report";
 
 /**
  * The caveat figures, with the zeros collapsed into one line.
@@ -178,6 +178,7 @@ export function DelegationView() {
   // Derived from the rows rather than reported: the totals carry no denominator
   // for their delegated figures and the rows do. See summarize() for why the two
   // bar denominators are floored at 1.
+  const summary = summarize(bySubagentType);
   const {
     recordsWithUsage,
     transcriptsWithoutSpan,
@@ -186,7 +187,7 @@ export function DelegationView() {
     workWithoutADispatch,
     mostDispatches,
     mostRecords,
-  } = summarize(bySubagentType);
+  } = summary;
 
   // Opening on the busiest specialist rather than an empty pane: the first thing
   // worth reading is where the work actually went.
@@ -196,123 +197,7 @@ export function DelegationView() {
     null;
   const work = selected?.delegatedWork ?? null;
 
-  const caveats: Caveat[] = [
-    {
-      label: "session transcripts gone before a byte was read",
-      value: evidence.transcriptsVanishedDuringScan,
-      why: "A live Claude Code process rotates these files, and this scan touches every one on the machine. Any dispatch inside one that vanished is not in the totals.",
-    },
-    {
-      label: "session transcripts that changed while being read",
-      value: evidence.transcriptsTruncatedMidScan,
-      why: "The reader stops where the file stops and raises nothing, so an unknown number of records past that point are missing from every dispatch figure.",
-    },
-    {
-      label: "session lines that would not parse",
-      value: evidence.unparseableLines,
-      why: "A live session's last line is often torn mid-write. Those lines carry no dispatch that could have been counted.",
-    },
-    {
-      label: "replayed dispatch records counted once",
-      value: evidence.duplicateDispatchRecordsIgnored,
-      why: "A resumed or forked session replays earlier records, and a replay is not a second dispatch. The copy kept is the one in the most recently modified transcript.",
-    },
-    {
-      label: "dispatches with no usable timestamp",
-      value: evidence.dispatchesWithoutTimestamp,
-      why: "They are in the totals and have no bucket in the monthly trend, because stamping them with the read time would put them in this month's column.",
-    },
-    {
-      label: "dispatches with no paired result record",
-      value: evidence.dispatchesWithoutPairedResult,
-      why: "Nothing on disk says how they were launched, so they are reported as unknown rather than assumed to have run inline.",
-    },
-    {
-      label: "dispatches whose launch mode stays unknown",
-      value: totals.launchModeUnknownDispatches,
-      why: "Detached, inline and unknown add up to every dispatch, so a guess is never hiding inside either side.",
-    },
-    {
-      label: "delegated transcripts gone mid-scan",
-      value: evidence.subagentTranscriptsVanishedDuringScan,
-      why: "None of their records reached the delegated figures.",
-    },
-    {
-      label: "delegated transcripts that changed while being read",
-      value: evidence.subagentTranscriptsTruncatedMidScan,
-      why: "As with the session files, the read stopped early with no error, so records past that point are missing from the records, tool calls, tokens and wall clock.",
-    },
-    {
-      label: "delegated lines that would not parse",
-      value: evidence.subagentUnparseableLines,
-      why: "Skipped rather than guessed at.",
-    },
-    {
-      label: "delegated transcripts naming no specialist",
-      value: evidence.subagentTranscriptsWithoutAgentType,
-      why: 'Real delegated work whose file names nobody. Reported under "(unattributed)" rather than folded into a specialist that may not have done it.',
-    },
-    {
-      label: "delegated transcripts naming more than one specialist",
-      value: evidence.subagentTranscriptsWithMixedAgentType,
-      why: "The first name in the file wins, so the whole file counts as that specialist's work.",
-    },
-    {
-      label: "delegated transcripts too short to have a span",
-      value: transcriptsWithoutSpan,
-      why: "Fewer than two usable timestamps, so no span exists and they add nothing to the wall clock.",
-    },
-    {
-      label: "nested files skipped as not being delegated runs",
-      value: evidence.nestedFilesNotSubagentTranscripts,
-      why: "They sit outside the subagents directory and hold a different kind of log, so they were not read.",
-    },
-    {
-      label: "sibling directories not named for a session",
-      value: evidence.directoriesNotNamedForASession,
-      why: "Not walked at all. A plugin writes its own log beside the transcripts, and reading one as delegated work invented an owning session named for the plugin.",
-    },
-    {
-      label: "directories that could not be read",
-      value: evidence.subagentDirectoriesUnreadable,
-      why: "Whatever they hold is in no figure here.",
-    },
-    {
-      label: "directories past the walk depth",
-      value: evidence.subagentDirectoriesBeyondWalkDepth,
-      why: "The walk is bounded, so anything nested deeper was not looked at.",
-    },
-    {
-      label: "symlinks not followed",
-      value: evidence.subagentSymlinksNotFollowed,
-      why: "Following one could leave the transcript tree entirely, or count the same file twice.",
-    },
-    {
-      label: "dispatch calls made inside delegated work",
-      value: evidence.dispatchesInsideDelegatedWork,
-      why: "A subagent handing work on again. Counted here and deliberately not in the dispatch figures, which are about what a mainline session handed off.",
-    },
-    {
-      label: "dispatches with no prompt to measure",
-      value: promptCharsMissing,
-      why: "No briefing length exists for them, so they sit outside the median rather than counting as an empty briefing.",
-    },
-    {
-      label: "months dropped by the trend cap",
-      value: evidence.trendMonthsOmitted,
-      why: `The trend holds at most ${count(evidence.trendMonthCap)} monthly buckets, ending in the month it was read, so one absurd timestamp cannot decide the size of this page.`,
-    },
-    {
-      label: "dispatches older than the trend window",
-      value: evidence.dispatchesBeforeTrendWindow,
-      why: "In the totals, with no bucket in the chart above.",
-    },
-    {
-      label: "dispatches dated after the month this was read in",
-      value: evidence.dispatchesAfterTrendWindow,
-      why: "They get no bucket rather than a bucket in the future, which is what a clock skew or a mistyped timestamp looks like.",
-    },
-  ];
+  const caveats = buildCaveats(evidence, totals, summary);
 
   return (
     <div>

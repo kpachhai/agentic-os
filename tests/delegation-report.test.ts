@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { count, day, shortProject, span, summarize } from "../src/delegation-report.js";
-import type { DelegatedWork, SubagentDelegation } from "../src/delegation-types.js";
+import { buildCaveats, count, day, shortProject, span, summarize } from "../src/delegation-report.js";
+import type {
+  DelegatedWork,
+  DelegationEvidence,
+  DelegationTotals,
+  SubagentDelegation,
+} from "../src/delegation-types.js";
 
 /**
  * The four formatters lifted out of DelegationView.tsx, which had no test of any
@@ -206,5 +211,115 @@ describe("summarize", () => {
     ]);
     expect(s.mostDispatches).toBe(7);
     expect(s.mostRecords).toBe(10);
+  });
+});
+
+/**
+ * `buildCaveats` is the riskiest thing in this extraction: 23 rows, each wiring one
+ * field of the evidence block to one label. A row pointed at the wrong field still
+ * renders, still shows a plausible number, and no gate in this repo would notice.
+ *
+ * So the wiring is pinned exhaustively rather than sampled: every numeric evidence
+ * field gets a distinct sentinel, and each caveat is asserted to carry the value of
+ * the field it claims. Written before the logic moved out of the view.
+ */
+const EVIDENCE_NUMERIC_FIELDS = [
+  "sessionTranscriptsScanned", "sessionRecordsRead", "unparseableLines",
+  "transcriptsVanishedDuringScan", "transcriptsTruncatedMidScan",
+  "duplicateDispatchRecordsIgnored", "dispatchesWithoutTimestamp",
+  "dispatchesRequestingBackgroundExplicitly", "dispatchesRequestingInlineExplicitly",
+  "dispatchesWithNoBackgroundFlag", "dispatchesWithoutPairedResult",
+  "dispatchesWithMatchingSubagentTranscript", "dispatchesWithoutMatchingSubagentTranscript",
+  "sidechainRecordsInSessionTranscripts", "recordsCarryingSidechainFlag",
+  "sessionRecordsWithoutSidechainFlag", "subagentTranscriptFiles",
+  "workflowAgentTranscriptFiles", "subagentTranscriptsRead", "subagentRecordsRead",
+  "subagentUnparseableLines", "subagentRecordsMarkedSidechain",
+  "subagentTranscriptsWithoutAgentType", "subagentTranscriptsWithMixedAgentType",
+  "subagentTranscriptsVanishedDuringScan", "subagentTranscriptsTruncatedMidScan",
+  "nestedFilesNotSubagentTranscripts", "directoriesNotNamedForASession",
+  "subagentDirectoriesUnreadable", "subagentDirectoriesBeyondWalkDepth",
+  "subagentSymlinksNotFollowed", "subagentTranscriptsWhoseOwnerSessionNeverDispatched",
+  "dispatchesInsideDelegatedWork", "trendMonthCap", "trendMonthsOmitted",
+  "dispatchesBeforeTrendWindow", "dispatchesAfterTrendWindow",
+] as const;
+
+/** Each field gets its index as a sentinel, so a swap between any two rows shows up. */
+function sentinelEvidence(): DelegationEvidence {
+  const ev = {
+    toolNames: [] as string[],
+    dispatchOutcomeStatuses: [] as Array<{ status: string; dispatches: number }>,
+    trendThroughMonth: "2026-08" as string | null,
+  } as Record<string, unknown>;
+  EVIDENCE_NUMERIC_FIELDS.forEach((f, i) => {
+    ev[f] = i + 1;
+  });
+  return ev as unknown as DelegationEvidence;
+}
+
+const SENTINEL = (field: (typeof EVIDENCE_NUMERIC_FIELDS)[number]): number =>
+  EVIDENCE_NUMERIC_FIELDS.indexOf(field) + 1;
+
+function sentinelTotals(): DelegationTotals {
+  return {
+    dispatches: 0, subagentTypes: 0, projects: 0, sessions: 0, modelOverrides: 0,
+    backgroundDispatches: 0, inlineDispatches: 0,
+    launchModeUnknownDispatches: 900,
+    worktreeIsolatedDispatches: 0, firstDispatchAt: null, lastDispatchAt: null,
+    medianPromptChars: null, delegatedTranscripts: 0, delegatedRecords: 0,
+    delegatedToolCalls: 0, delegatedOutputTokens: null, delegatedWallClockMs: null,
+    sessionsWithDelegatedWork: 0,
+  };
+}
+
+const SUMMARY_FOR_CAVEATS = { ...summarize([]), promptCharsMissing: 800, transcriptsWithoutSpan: 700 };
+
+describe("buildCaveats", () => {
+  const rows = buildCaveats(sentinelEvidence(), sentinelTotals(), SUMMARY_FOR_CAVEATS);
+  const byLabel = new Map(rows.map((c) => [c.label, c.value]));
+
+  it("returns all 23 rows", () => {
+    expect(rows).toHaveLength(23);
+  });
+
+  it("gives every row a distinct label and a non-empty why", () => {
+    expect(new Set(rows.map((c) => c.label)).size).toBe(rows.length);
+    for (const c of rows) expect(c.why.trim().length).toBeGreaterThan(0);
+  });
+
+  it("wires each row to the evidence field it names", () => {
+    const expected: Record<string, number> = {
+      "session transcripts gone before a byte was read": SENTINEL("transcriptsVanishedDuringScan"),
+      "session transcripts that changed while being read": SENTINEL("transcriptsTruncatedMidScan"),
+      "session lines that would not parse": SENTINEL("unparseableLines"),
+      "replayed dispatch records counted once": SENTINEL("duplicateDispatchRecordsIgnored"),
+      "dispatches with no usable timestamp": SENTINEL("dispatchesWithoutTimestamp"),
+      "dispatches with no paired result record": SENTINEL("dispatchesWithoutPairedResult"),
+      "delegated transcripts gone mid-scan": SENTINEL("subagentTranscriptsVanishedDuringScan"),
+      "delegated transcripts that changed while being read": SENTINEL("subagentTranscriptsTruncatedMidScan"),
+      "delegated lines that would not parse": SENTINEL("subagentUnparseableLines"),
+      "delegated transcripts naming no specialist": SENTINEL("subagentTranscriptsWithoutAgentType"),
+      "delegated transcripts naming more than one specialist": SENTINEL("subagentTranscriptsWithMixedAgentType"),
+      "nested files skipped as not being delegated runs": SENTINEL("nestedFilesNotSubagentTranscripts"),
+      "sibling directories not named for a session": SENTINEL("directoriesNotNamedForASession"),
+      "directories that could not be read": SENTINEL("subagentDirectoriesUnreadable"),
+      "directories past the walk depth": SENTINEL("subagentDirectoriesBeyondWalkDepth"),
+      "symlinks not followed": SENTINEL("subagentSymlinksNotFollowed"),
+      "dispatch calls made inside delegated work": SENTINEL("dispatchesInsideDelegatedWork"),
+      "months dropped by the trend cap": SENTINEL("trendMonthsOmitted"),
+      "dispatches older than the trend window": SENTINEL("dispatchesBeforeTrendWindow"),
+      "dispatches dated after the month this was read in": SENTINEL("dispatchesAfterTrendWindow"),
+    };
+    for (const [label, value] of Object.entries(expected)) {
+      expect(byLabel.get(label), `caveat "${label}" reads the wrong field`).toBe(value);
+    }
+  });
+
+  it("takes the launch-mode row from totals, not from evidence", () => {
+    expect(byLabel.get("dispatches whose launch mode stays unknown")).toBe(900);
+  });
+
+  it("takes its two computed rows from the summary, not from evidence", () => {
+    expect(byLabel.get("dispatches with no prompt to measure")).toBe(800);
+    expect(byLabel.get("delegated transcripts too short to have a span")).toBe(700);
   });
 });
