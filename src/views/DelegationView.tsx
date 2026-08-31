@@ -1,167 +1,11 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useApi } from "../api";
 import { compact } from "../format";
 import { FailureState, RailLegend, Skeleton } from "../PillarState";
 import { useSorted, useSortState } from "../sortable";
 
-/**
- * The payload shapes, restated from the server module that produces them - the UI
- * does not import server code. The comments kept here are the ones that change
- * what a figure may be read as; the rest of the field names say enough.
- */
-type DelegationProjectUse = {
-  projectDir: string;
-  /** Display form of the directory name, with its separators flattened to hyphens. */
-  label: string;
-  dispatches: number;
-};
-
-type DelegatedWork = {
-  transcripts: number;
-  owningSessions: number;
-  records: number;
-  toolCalls: number;
-  /** null when no record carried a usage block, which is a different claim from zero. */
-  outputTokens: number | null;
-  recordsWithUsage: number;
-  firstRecordAt: string | null;
-  lastRecordAt: string | null;
-  /** First to last record within each transcript, summed over them. */
-  wallClockMs: number | null;
-  transcriptsWithoutSpan: number;
-};
-
-type SubagentDelegation = {
-  subagentType: string;
-  dispatches: number;
-  projects: DelegationProjectUse[];
-  sessions: number;
-  firstDispatchAt: string | null;
-  lastDispatchAt: string | null;
-  modelOverrides: number;
-  modelsRequested: string[];
-  /** Read from the paired result, not from the request's own opt-out flag. */
-  backgroundDispatches: number;
-  inlineDispatches: number;
-  launchModeUnknownDispatches: number;
-  worktreeIsolatedDispatches: number;
-  medianPromptChars: number | null;
-  promptCharsMissing: number;
-  /** null means nothing on disk is attributed to it, not that it produced nothing. */
-  delegatedWork: DelegatedWork | null;
-};
-
-type DelegationTotals = {
-  dispatches: number;
-  subagentTypes: number;
-  projects: number;
-  sessions: number;
-  modelOverrides: number;
-  backgroundDispatches: number;
-  inlineDispatches: number;
-  launchModeUnknownDispatches: number;
-  worktreeIsolatedDispatches: number;
-  firstDispatchAt: string | null;
-  lastDispatchAt: string | null;
-  medianPromptChars: number | null;
-  /** Result side. Named apart from the dispatch figures because they disagree. */
-  delegatedTranscripts: number;
-  delegatedRecords: number;
-  delegatedToolCalls: number;
-  delegatedOutputTokens: number | null;
-  delegatedWallClockMs: number | null;
-  sessionsWithDelegatedWork: number;
-};
-
-type DelegationMonth = {
-  /** Calendar month in UTC, "YYYY-MM". */
-  month: string;
-  dispatches: number;
-};
-
-type DelegationEvidence = {
-  sessionTranscriptsScanned: number;
-  sessionRecordsRead: number;
-  unparseableLines: number;
-  transcriptsVanishedDuringScan: number;
-  transcriptsTruncatedMidScan: number;
-  toolNames: string[];
-  duplicateDispatchRecordsIgnored: number;
-  dispatchesWithoutTimestamp: number;
-  dispatchesRequestingBackgroundExplicitly: number;
-  dispatchesRequestingInlineExplicitly: number;
-  dispatchesWithNoBackgroundFlag: number;
-  dispatchOutcomeStatuses: Array<{ status: string; dispatches: number }>;
-  dispatchesWithoutPairedResult: number;
-  dispatchesWithMatchingSubagentTranscript: number;
-  dispatchesWithoutMatchingSubagentTranscript: number;
-  sidechainRecordsInSessionTranscripts: number;
-  recordsCarryingSidechainFlag: number;
-  sessionRecordsWithoutSidechainFlag: number;
-  subagentTranscriptFiles: number;
-  workflowAgentTranscriptFiles: number;
-  subagentTranscriptsRead: number;
-  subagentRecordsRead: number;
-  subagentUnparseableLines: number;
-  subagentRecordsMarkedSidechain: number;
-  subagentTranscriptsWithoutAgentType: number;
-  subagentTranscriptsWithMixedAgentType: number;
-  subagentTranscriptsVanishedDuringScan: number;
-  subagentTranscriptsTruncatedMidScan: number;
-  nestedFilesNotSubagentTranscripts: number;
-  directoriesNotNamedForASession: number;
-  subagentDirectoriesUnreadable: number;
-  subagentDirectoriesBeyondWalkDepth: number;
-  subagentSymlinksNotFollowed: number;
-  subagentTranscriptsWhoseOwnerSessionNeverDispatched: number;
-  dispatchesInsideDelegatedWork: number;
-  /** The month the trend's zero-fill runs to, which is the month it was read in. */
-  trendThroughMonth: string | null;
-  trendMonthCap: number;
-  trendMonthsOmitted: number;
-  dispatchesBeforeTrendWindow: number;
-  dispatchesAfterTrendWindow: number;
-};
-
-type DelegationReport = {
-  bySubagentType: SubagentDelegation[];
-  totals: DelegationTotals;
-  byMonth: DelegationMonth[];
-  evidence: DelegationEvidence;
-  /** What these numbers do not say. Rendered verbatim, never paraphrased. */
-  limitation: string;
-};
-
-const count = (value: number): string => value.toLocaleString("en-US");
-
-/** Token counts, in the compact form the usage view uses. */
-/** A duration, at whatever unit keeps it readable. Never a wait, always a span. */
-function span(ms: number): string {
-  const hours = ms / 3_600_000;
-  if (hours < 1) return `${Math.round(ms / 60_000)}m`;
-  if (hours < 48) return `${hours.toFixed(1)}h`;
-  return `${(hours / 24).toFixed(1)}d`;
-}
-
-const day = (iso: string | null): string => (iso === null ? "no date" : iso.slice(0, 10));
-
-/**
- * The tail of an encoded project directory.
- *
- * The corpus addresses a project by a directory name whose path separators were
- * already flattened to hyphens, so the whole thing is one token and the usual path
- * shortener cannot split it. The leading segments are the reader's home directory
- * and repeat on every row, so only the tail is shown as the label and the value the
- * corpus actually uses stays in the title.
- */
-function shortProject(label: string): string {
-  const tokens = label.replace(/^\//, "").split("-").filter(Boolean);
-  if (tokens.length === 0) return label;
-  if (tokens.length <= 2) return tokens.join("-");
-  return `...${tokens.slice(-2).join("-")}`;
-}
-
-type Caveat = { label: string; value: number; why: string };
+import type { Caveat, DelegationMonth, DelegationReport } from "../delegation-types";
+import { buildCaveats, count, day, shortProject, span, summarize } from "../delegation-report";
 
 /**
  * The caveat figures, with the zeros collapsed into one line.
@@ -331,37 +175,19 @@ export function DelegationView() {
   const { totals, evidence, byMonth, bySubagentType, limitation } = report;
 
 
-  // The totals carry no denominator for their delegated figures and the rows do.
-  // Every specialist the delegated scan found becomes a row, so summing the rows
-  // covers the same corpus the totals were built from; kept as a visible sum rather
-  // than presented as a figure the server reported.
-  const recordsWithUsage = bySubagentType.reduce(
-    (sum, row) => sum + (row.delegatedWork?.recordsWithUsage ?? 0),
-    0,
-  );
-  const transcriptsWithoutSpan = bySubagentType.reduce(
-    (sum, row) => sum + (row.delegatedWork?.transcriptsWithoutSpan ?? 0),
-    0,
-  );
-  const promptCharsMissing = bySubagentType.reduce(
-    (sum, row) => sum + row.promptCharsMissing,
-    0,
-  );
-  const dispatchedWithNothingBack = bySubagentType.filter(
-    (row) => row.dispatches > 0 && row.delegatedWork === null,
-  ).length;
-  const workWithoutADispatch = bySubagentType.filter(
-    (row) => row.dispatches === 0 && row.delegatedWork !== null,
-  ).length;
-
-  const mostDispatches = bySubagentType.reduce(
-    (max, row) => Math.max(max, row.dispatches),
-    1,
-  );
-  const mostRecords = bySubagentType.reduce(
-    (max, row) => Math.max(max, row.delegatedWork?.records ?? 0),
-    1,
-  );
+  // Derived from the rows rather than reported: the totals carry no denominator
+  // for their delegated figures and the rows do. See summarize() for why the two
+  // bar denominators are floored at 1.
+  const summary = summarize(bySubagentType);
+  const {
+    recordsWithUsage,
+    transcriptsWithoutSpan,
+    promptCharsMissing,
+    dispatchedWithNothingBack,
+    workWithoutADispatch,
+    mostDispatches,
+    mostRecords,
+  } = summary;
 
   // Opening on the busiest specialist rather than an empty pane: the first thing
   // worth reading is where the work actually went.
@@ -371,123 +197,7 @@ export function DelegationView() {
     null;
   const work = selected?.delegatedWork ?? null;
 
-  const caveats: Caveat[] = [
-    {
-      label: "session transcripts gone before a byte was read",
-      value: evidence.transcriptsVanishedDuringScan,
-      why: "A live Claude Code process rotates these files, and this scan touches every one on the machine. Any dispatch inside one that vanished is not in the totals.",
-    },
-    {
-      label: "session transcripts that changed while being read",
-      value: evidence.transcriptsTruncatedMidScan,
-      why: "The reader stops where the file stops and raises nothing, so an unknown number of records past that point are missing from every dispatch figure.",
-    },
-    {
-      label: "session lines that would not parse",
-      value: evidence.unparseableLines,
-      why: "A live session's last line is often torn mid-write. Those lines carry no dispatch that could have been counted.",
-    },
-    {
-      label: "replayed dispatch records counted once",
-      value: evidence.duplicateDispatchRecordsIgnored,
-      why: "A resumed or forked session replays earlier records, and a replay is not a second dispatch. The copy kept is the one in the most recently modified transcript.",
-    },
-    {
-      label: "dispatches with no usable timestamp",
-      value: evidence.dispatchesWithoutTimestamp,
-      why: "They are in the totals and have no bucket in the monthly trend, because stamping them with the read time would put them in this month's column.",
-    },
-    {
-      label: "dispatches with no paired result record",
-      value: evidence.dispatchesWithoutPairedResult,
-      why: "Nothing on disk says how they were launched, so they are reported as unknown rather than assumed to have run inline.",
-    },
-    {
-      label: "dispatches whose launch mode stays unknown",
-      value: totals.launchModeUnknownDispatches,
-      why: "Detached, inline and unknown add up to every dispatch, so a guess is never hiding inside either side.",
-    },
-    {
-      label: "delegated transcripts gone mid-scan",
-      value: evidence.subagentTranscriptsVanishedDuringScan,
-      why: "None of their records reached the delegated figures.",
-    },
-    {
-      label: "delegated transcripts that changed while being read",
-      value: evidence.subagentTranscriptsTruncatedMidScan,
-      why: "As with the session files, the read stopped early with no error, so records past that point are missing from the records, tool calls, tokens and wall clock.",
-    },
-    {
-      label: "delegated lines that would not parse",
-      value: evidence.subagentUnparseableLines,
-      why: "Skipped rather than guessed at.",
-    },
-    {
-      label: "delegated transcripts naming no specialist",
-      value: evidence.subagentTranscriptsWithoutAgentType,
-      why: 'Real delegated work whose file names nobody. Reported under "(unattributed)" rather than folded into a specialist that may not have done it.',
-    },
-    {
-      label: "delegated transcripts naming more than one specialist",
-      value: evidence.subagentTranscriptsWithMixedAgentType,
-      why: "The first name in the file wins, so the whole file counts as that specialist's work.",
-    },
-    {
-      label: "delegated transcripts too short to have a span",
-      value: transcriptsWithoutSpan,
-      why: "Fewer than two usable timestamps, so no span exists and they add nothing to the wall clock.",
-    },
-    {
-      label: "nested files skipped as not being delegated runs",
-      value: evidence.nestedFilesNotSubagentTranscripts,
-      why: "They sit outside the subagents directory and hold a different kind of log, so they were not read.",
-    },
-    {
-      label: "sibling directories not named for a session",
-      value: evidence.directoriesNotNamedForASession,
-      why: "Not walked at all. A plugin writes its own log beside the transcripts, and reading one as delegated work invented an owning session named for the plugin.",
-    },
-    {
-      label: "directories that could not be read",
-      value: evidence.subagentDirectoriesUnreadable,
-      why: "Whatever they hold is in no figure here.",
-    },
-    {
-      label: "directories past the walk depth",
-      value: evidence.subagentDirectoriesBeyondWalkDepth,
-      why: "The walk is bounded, so anything nested deeper was not looked at.",
-    },
-    {
-      label: "symlinks not followed",
-      value: evidence.subagentSymlinksNotFollowed,
-      why: "Following one could leave the transcript tree entirely, or count the same file twice.",
-    },
-    {
-      label: "dispatch calls made inside delegated work",
-      value: evidence.dispatchesInsideDelegatedWork,
-      why: "A subagent handing work on again. Counted here and deliberately not in the dispatch figures, which are about what a mainline session handed off.",
-    },
-    {
-      label: "dispatches with no prompt to measure",
-      value: promptCharsMissing,
-      why: "No briefing length exists for them, so they sit outside the median rather than counting as an empty briefing.",
-    },
-    {
-      label: "months dropped by the trend cap",
-      value: evidence.trendMonthsOmitted,
-      why: `The trend holds at most ${count(evidence.trendMonthCap)} monthly buckets, ending in the month it was read, so one absurd timestamp cannot decide the size of this page.`,
-    },
-    {
-      label: "dispatches older than the trend window",
-      value: evidence.dispatchesBeforeTrendWindow,
-      why: "In the totals, with no bucket in the chart above.",
-    },
-    {
-      label: "dispatches dated after the month this was read in",
-      value: evidence.dispatchesAfterTrendWindow,
-      why: "They get no bucket rather than a bucket in the future, which is what a clock skew or a mistyped timestamp looks like.",
-    },
-  ];
+  const caveats = buildCaveats(evidence, totals, summary);
 
   return (
     <div>
