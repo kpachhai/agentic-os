@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { count, day, shortProject, span } from "../src/delegation-report.js";
+import { count, day, shortProject, span, summarize } from "../src/delegation-report.js";
+import type { DelegatedWork, SubagentDelegation } from "../src/delegation-types.js";
 
 /**
  * The four formatters lifted out of DelegationView.tsx, which had no test of any
@@ -99,5 +100,111 @@ describe("shortProject", () => {
     expect(shortProject("")).toBe("");
     expect(shortProject("/")).toBe("/");
     expect(shortProject("---")).toBe("---");
+  });
+});
+
+/**
+ * `summarize` is the seven figures the view derives from the specialist rows.
+ * Written before the view was switched over to it, so these pin the behaviour of
+ * the original inline reduces rather than of whatever the extraction produced.
+ */
+function row(over: Partial<SubagentDelegation> = {}): SubagentDelegation {
+  return {
+    subagentType: "coder",
+    dispatches: 0,
+    projects: [],
+    sessions: 0,
+    firstDispatchAt: null,
+    lastDispatchAt: null,
+    modelOverrides: 0,
+    modelsRequested: [],
+    backgroundDispatches: 0,
+    inlineDispatches: 0,
+    launchModeUnknownDispatches: 0,
+    worktreeIsolatedDispatches: 0,
+    medianPromptChars: null,
+    promptCharsMissing: 0,
+    delegatedWork: null,
+    ...over,
+  };
+}
+
+const EMPTY_WORK: DelegatedWork = {
+  transcripts: 0,
+  owningSessions: 0,
+  records: 0,
+  toolCalls: 0,
+  outputTokens: 0,
+  recordsWithUsage: 0,
+  firstRecordAt: null,
+  lastRecordAt: null,
+  wallClockMs: 0,
+  transcriptsWithoutSpan: 0,
+};
+
+function work(over: Partial<DelegatedWork> = {}): DelegatedWork {
+  return { ...EMPTY_WORK, ...over };
+}
+
+describe("summarize", () => {
+  it("floors both bar denominators at 1 on an empty corpus", () => {
+    // Load-bearing, not defensive: these divide bar widths, so a zero would be a
+    // division by zero rather than an empty chart.
+    const s = summarize([]);
+    expect(s.mostDispatches).toBe(1);
+    expect(s.mostRecords).toBe(1);
+  });
+
+  it("returns zero for every sum and count on an empty corpus", () => {
+    const s = summarize([]);
+    expect(s.recordsWithUsage).toBe(0);
+    expect(s.transcriptsWithoutSpan).toBe(0);
+    expect(s.promptCharsMissing).toBe(0);
+    expect(s.dispatchedWithNothingBack).toBe(0);
+    expect(s.workWithoutADispatch).toBe(0);
+  });
+
+  it("keeps the floor when every real value is below it", () => {
+    const s = summarize([row({ dispatches: 0, delegatedWork: work({ records: 0 }) })]);
+    expect(s.mostDispatches).toBe(1);
+    expect(s.mostRecords).toBe(1);
+  });
+
+  it("treats a null delegatedWork as zero rather than skipping the row", () => {
+    const s = summarize([
+      row({ delegatedWork: null, promptCharsMissing: 5 }),
+      row({ delegatedWork: work({ recordsWithUsage: 3, transcriptsWithoutSpan: 2, records: 9 }) }),
+    ]);
+    expect(s.recordsWithUsage).toBe(3);
+    expect(s.transcriptsWithoutSpan).toBe(2);
+    expect(s.promptCharsMissing).toBe(5); // read off the row, not off delegatedWork
+    expect(s.mostRecords).toBe(9);
+  });
+
+  it("counts a dispatch with nothing attributed back", () => {
+    const s = summarize([
+      row({ dispatches: 4, delegatedWork: null }),
+      row({ dispatches: 0, delegatedWork: null }), // neither dispatched nor attributed
+      row({ dispatches: 2, delegatedWork: work() }),
+    ]);
+    expect(s.dispatchedWithNothingBack).toBe(1);
+  });
+
+  it("counts attributed work with no dispatch recorded", () => {
+    const s = summarize([
+      row({ dispatches: 0, delegatedWork: work() }),
+      row({ dispatches: 1, delegatedWork: work() }),
+      row({ dispatches: 0, delegatedWork: null }),
+    ]);
+    expect(s.workWithoutADispatch).toBe(1);
+  });
+
+  it("takes the maximum, not the sum, for the two denominators", () => {
+    const s = summarize([
+      row({ dispatches: 3, delegatedWork: work({ records: 10 }) }),
+      row({ dispatches: 7, delegatedWork: work({ records: 4 }) }),
+    ]);
+    expect(s.mostDispatches).toBe(7);
+    expect(s.mostRecords).toBe(10);
   });
 });

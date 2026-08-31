@@ -1,11 +1,11 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useApi } from "../api";
 import { compact } from "../format";
 import { FailureState, RailLegend, Skeleton } from "../PillarState";
 import { useSorted, useSortState } from "../sortable";
 
 import type { Caveat, DelegationMonth, DelegationReport } from "../delegation-types";
-import { count, day, shortProject, span } from "../delegation-report";
+import { count, day, shortProject, span, summarize } from "../delegation-report";
 
 /**
  * The caveat figures, with the zeros collapsed into one line.
@@ -175,37 +175,18 @@ export function DelegationView() {
   const { totals, evidence, byMonth, bySubagentType, limitation } = report;
 
 
-  // The totals carry no denominator for their delegated figures and the rows do.
-  // Every specialist the delegated scan found becomes a row, so summing the rows
-  // covers the same corpus the totals were built from; kept as a visible sum rather
-  // than presented as a figure the server reported.
-  const recordsWithUsage = bySubagentType.reduce(
-    (sum, row) => sum + (row.delegatedWork?.recordsWithUsage ?? 0),
-    0,
-  );
-  const transcriptsWithoutSpan = bySubagentType.reduce(
-    (sum, row) => sum + (row.delegatedWork?.transcriptsWithoutSpan ?? 0),
-    0,
-  );
-  const promptCharsMissing = bySubagentType.reduce(
-    (sum, row) => sum + row.promptCharsMissing,
-    0,
-  );
-  const dispatchedWithNothingBack = bySubagentType.filter(
-    (row) => row.dispatches > 0 && row.delegatedWork === null,
-  ).length;
-  const workWithoutADispatch = bySubagentType.filter(
-    (row) => row.dispatches === 0 && row.delegatedWork !== null,
-  ).length;
-
-  const mostDispatches = bySubagentType.reduce(
-    (max, row) => Math.max(max, row.dispatches),
-    1,
-  );
-  const mostRecords = bySubagentType.reduce(
-    (max, row) => Math.max(max, row.delegatedWork?.records ?? 0),
-    1,
-  );
+  // Derived from the rows rather than reported: the totals carry no denominator
+  // for their delegated figures and the rows do. See summarize() for why the two
+  // bar denominators are floored at 1.
+  const {
+    recordsWithUsage,
+    transcriptsWithoutSpan,
+    promptCharsMissing,
+    dispatchedWithNothingBack,
+    workWithoutADispatch,
+    mostDispatches,
+    mostRecords,
+  } = summarize(bySubagentType);
 
   // Opening on the busiest specialist rather than an empty pane: the first thing
   // worth reading is where the work actually went.
