@@ -5,34 +5,7 @@ import { FailureState, RailLegend, Skeleton } from "../PillarState";
 import { useSorted, useSortState } from "../sortable";
 
 import type { Caveat, DelegationMonth, DelegationReport } from "../delegation-types";
-const count = (value: number): string => value.toLocaleString("en-US");
-
-/** Token counts, in the compact form the usage view uses. */
-/** A duration, at whatever unit keeps it readable. Never a wait, always a span. */
-function span(ms: number): string {
-  const hours = ms / 3_600_000;
-  if (hours < 1) return `${Math.round(ms / 60_000)}m`;
-  if (hours < 48) return `${hours.toFixed(1)}h`;
-  return `${(hours / 24).toFixed(1)}d`;
-}
-
-const day = (iso: string | null): string => (iso === null ? "no date" : iso.slice(0, 10));
-
-/**
- * The tail of an encoded project directory.
- *
- * The corpus addresses a project by a directory name whose path separators were
- * already flattened to hyphens, so the whole thing is one token and the usual path
- * shortener cannot split it. The leading segments are the reader's home directory
- * and repeat on every row, so only the tail is shown as the label and the value the
- * corpus actually uses stays in the title.
- */
-function shortProject(label: string): string {
-  const tokens = label.replace(/^\//, "").split("-").filter(Boolean);
-  if (tokens.length === 0) return label;
-  if (tokens.length <= 2) return tokens.join("-");
-  return `...${tokens.slice(-2).join("-")}`;
-}
+import { count, day, shortProject, span } from "../delegation-report";
 
 /**
  * The caveat figures, with the zeros collapsed into one line.
